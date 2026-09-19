@@ -5,6 +5,8 @@ import pyautogui
 import ollama
 
 MODEL = "qwen3:4b"
+VISION_MODEL = "qwen3-vl:4b"
+SCREENSHOT_PATH = "screen.png"
 
 SYSTEM_PROMPT = """
 You are Orsearch, a Windows computer assistant.
@@ -30,6 +32,7 @@ Available actions:
 11. {"type":"move_mouse","x":500,"y":300}
 12. {"type":"double_click","x":500,"y":300}
 13. {"type":"screenshot"}
+14. {"type":"analyze_screen"}
 
 Important rules:
 
@@ -37,8 +40,9 @@ Important rules:
 - If the user asks to search something on Google, use search_web.
 - When opening a website or searching, open Chrome first.
 - Use click, move_mouse and double_click only when coordinates are known.
-- Use screenshot when the user asks to take or inspect a screenshot.
-- Never generate arbitrary coordinates unless they are explicitly known.
+- Never invent coordinates.
+- Use screenshot when the user asks to take a screenshot.
+- Use analyze_screen when the user asks what is currently visible on the screen.
 - Do not use arbitrary shell commands.
 - Do not generate Python, PowerShell or CMD commands.
 - Never generate file deletion commands.
@@ -112,6 +116,14 @@ User: Take a screenshot
     {"type":"screenshot"}
   ]
 }
+
+User: Analyze the screen
+
+{
+  "actions": [
+    {"type":"analyze_screen"}
+  ]
+}
 """
 
 
@@ -130,6 +142,62 @@ def focus_chrome():
     time.sleep(0.5)
 
 
+def take_screenshot():
+    try:
+        screenshot = pyautogui.screenshot()
+        screenshot.save(SCREENSHOT_PATH)
+
+        print("Screenshot captured.")
+
+        return True
+
+    except Exception as error:
+        print(f"Screenshot failed: {error}")
+
+        return False
+
+
+def analyze_screen():
+    print("\nAnalyzing screen with Qwen3-VL...\n")
+
+    if not take_screenshot():
+        return
+
+    try:
+        response = ollama.chat(
+            model=VISION_MODEL,
+            messages=[
+                {
+                    "role": "user",
+                    "content": """
+Analyze this Windows screenshot carefully.
+
+Tell me:
+
+1. What application is currently visible?
+2. What website or page is open, if any?
+3. What important UI elements are visible?
+4. What buttons, text fields, menus or icons are visible?
+5. Give approximate locations of important elements using screen coordinates.
+
+Do not invent elements that are not visible.
+Keep the answer concise.
+""",
+                    "images": [SCREENSHOT_PATH]
+                }
+            ]
+        )
+
+        result = response["message"]["content"]
+
+        print("========== SCREEN ANALYSIS ==========")
+        print(result)
+        print("=====================================")
+
+    except Exception as error:
+        print(f"Vision analysis failed: {error}")
+
+
 def execute_action(action):
     action_type = action.get("type")
 
@@ -137,31 +205,58 @@ def execute_action(action):
         app = action.get("app", "").lower()
 
         if app == "chrome":
+
             if chrome_is_running():
                 print("Chrome is already open. Using existing Chrome window.")
                 focus_chrome()
+
             else:
                 print("Opening Chrome...")
-                subprocess.Popen("start chrome", shell=True)
+                subprocess.Popen(
+                    "start chrome",
+                    shell=True
+                )
+
                 time.sleep(2)
 
         elif app == "notepad":
-            subprocess.Popen("notepad.exe")
+
+            print("Opening Notepad...")
+
+            subprocess.Popen(
+                "notepad.exe"
+            )
+
             time.sleep(1)
 
         else:
-            print(f"Blocked unknown app: {app}")
+            print(
+                f"Blocked unknown app: {app}"
+            )
 
     elif action_type == "open_url":
-        url = action.get("url", "")
+
+        url = action.get(
+            "url",
+            ""
+        )
 
         if not chrome_is_running():
-            subprocess.Popen("start chrome", shell=True)
+
+            subprocess.Popen(
+                "start chrome",
+                shell=True
+            )
+
             time.sleep(2)
 
         focus_chrome()
 
-        pyautogui.hotkey("ctrl", "l")
+        pyautogui.hotkey(
+            "ctrl",
+            "l"
+        )
+
         time.sleep(0.3)
 
         pyautogui.write(
@@ -169,13 +264,24 @@ def execute_action(action):
             interval=0.01
         )
 
-        pyautogui.press("enter")
+        pyautogui.press(
+            "enter"
+        )
 
     elif action_type == "search_web":
-        query = action.get("query", "")
+
+        query = action.get(
+            "query",
+            ""
+        )
 
         if not chrome_is_running():
-            subprocess.Popen("start chrome", shell=True)
+
+            subprocess.Popen(
+                "start chrome",
+                shell=True
+            )
+
             time.sleep(2)
 
         focus_chrome()
@@ -185,7 +291,11 @@ def execute_action(action):
             + query.replace(" ", "+")
         )
 
-        pyautogui.hotkey("ctrl", "l")
+        pyautogui.hotkey(
+            "ctrl",
+            "l"
+        )
+
         time.sleep(0.3)
 
         pyautogui.write(
@@ -193,10 +303,16 @@ def execute_action(action):
             interval=0.01
         )
 
-        pyautogui.press("enter")
+        pyautogui.press(
+            "enter"
+        )
 
     elif action_type == "type_text":
-        text = action.get("text", "")
+
+        text = action.get(
+            "text",
+            ""
+        )
 
         pyautogui.write(
             text,
@@ -204,7 +320,11 @@ def execute_action(action):
         )
 
     elif action_type == "press_key":
-        key = action.get("key", "").lower()
+
+        key = action.get(
+            "key",
+            ""
+        ).lower()
 
         allowed_keys = {
             "enter",
@@ -219,29 +339,70 @@ def execute_action(action):
         }
 
         if key in allowed_keys:
-            pyautogui.press(key)
+
+            pyautogui.press(
+                key
+            )
 
         else:
-            print(f"Blocked key: {key}")
+
+            print(
+                f"Blocked key: {key}"
+            )
 
     elif action_type == "click":
-        try:
-            x = int(action.get("x", 0))
-            y = int(action.get("y", 0))
 
-            pyautogui.click(x, y)
+        try:
+
+            x = int(
+                action.get(
+                    "x",
+                    0
+                )
+            )
+
+            y = int(
+                action.get(
+                    "y",
+                    0
+                )
+            )
+
+            pyautogui.click(
+                x,
+                y
+            )
 
             print(
                 f"Clicked at ({x}, {y})"
             )
 
-        except (ValueError, TypeError):
-            print("Invalid click coordinates.")
+        except (
+            ValueError,
+            TypeError
+        ):
+
+            print(
+                "Invalid click coordinates."
+            )
 
     elif action_type == "move_mouse":
+
         try:
-            x = int(action.get("x", 0))
-            y = int(action.get("y", 0))
+
+            x = int(
+                action.get(
+                    "x",
+                    0
+                )
+            )
+
+            y = int(
+                action.get(
+                    "y",
+                    0
+                )
+            )
 
             pyautogui.moveTo(
                 x,
@@ -253,46 +414,68 @@ def execute_action(action):
                 f"Mouse moved to ({x}, {y})"
             )
 
-        except (ValueError, TypeError):
-            print("Invalid mouse coordinates.")
+        except (
+            ValueError,
+            TypeError
+        ):
+
+            print(
+                "Invalid mouse coordinates."
+            )
 
     elif action_type == "double_click":
-        try:
-            x = int(action.get("x", 0))
-            y = int(action.get("y", 0))
 
-            pyautogui.doubleClick(x, y)
+        try:
+
+            x = int(
+                action.get(
+                    "x",
+                    0
+                )
+            )
+
+            y = int(
+                action.get(
+                    "y",
+                    0
+                )
+            )
+
+            pyautogui.doubleClick(
+                x,
+                y
+            )
 
             print(
                 f"Double clicked at ({x}, {y})"
             )
 
-        except (ValueError, TypeError):
+        except (
+            ValueError,
+            TypeError
+        ):
+
             print(
                 "Invalid double-click coordinates."
             )
 
     elif action_type == "screenshot":
-        try:
-            screenshot = pyautogui.screenshot()
 
-            screenshot.save(
-                "screen.png"
-            )
+        take_screenshot()
 
-            print(
-                "Screenshot saved as screen.png"
-            )
+    elif action_type == "analyze_screen":
 
-        except Exception as error:
-            print(
-                f"Screenshot failed: {error}"
-            )
+        analyze_screen()
 
     elif action_type == "wait":
+
         try:
+
             seconds = float(
-                action.get("seconds", 1)
+                action.get(
+                    "seconds",
+                    1
+                )
             )
 
             seconds = min(
@@ -300,18 +483,28 @@ def execute_action(action):
                 10
             )
 
-            time.sleep(seconds)
+            time.sleep(
+                seconds
+            )
 
-        except (ValueError, TypeError):
-            print("Invalid wait time.")
+        except (
+            ValueError,
+            TypeError
+        ):
+
+            print(
+                "Invalid wait time."
+            )
 
     else:
+
         print(
             f"Unknown action blocked: {action_type}"
         )
 
 
 def run_agent(user_input):
+
     response = ollama.chat(
         model=MODEL,
         messages=[
@@ -326,18 +519,27 @@ def run_agent(user_input):
         ]
     )
 
-    content = response["message"]["content"].strip()
+    content = response[
+        "message"
+    ][
+        "content"
+    ].strip()
 
     print("\nAI Plan:")
     print(content)
 
     try:
-        plan = json.loads(content)
+
+        plan = json.loads(
+            content
+        )
 
     except json.JSONDecodeError:
+
         print(
             "\nCould not understand AI action plan."
         )
+
         return
 
     actions = plan.get(
@@ -345,30 +547,55 @@ def run_agent(user_input):
         []
     )
 
-    if not isinstance(actions, list):
+    if not isinstance(
+        actions,
+        list
+    ):
+
         print(
             "Invalid action format."
         )
+
         return
 
-    print("\nExecuting...\n")
+    print(
+        "\nExecuting...\n"
+    )
 
     for action in actions:
+
         print(
             "->",
             action
         )
 
-        execute_action(action)
+        execute_action(
+            action
+        )
 
 
-print("================================")
-print("       ORSEARCH AGENT")
-print("================================")
-print("Type 'exit' to quit.\n")
+print(
+    "================================"
+)
+
+print(
+    "       ORSEARCH AGENT"
+)
+
+print(
+    "================================"
+)
+
+print(
+    "Type 'exit' to quit.\n"
+)
+
 
 while True:
-    user_input = input("You: ")
+
+    user_input = input(
+        "You: "
+    )
 
     if user_input.lower().strip() == "exit":
         break
@@ -376,4 +603,6 @@ while True:
     if not user_input.strip():
         continue
 
-    run_agent(user_input)
+    run_agent(
+        user_input
+    )
