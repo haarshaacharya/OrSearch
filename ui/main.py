@@ -268,6 +268,26 @@ def render_markdown(text: str) -> str:
     return final_html
 
 
+def format_user_text(text: str) -> str:
+    """
+    Formats user text specifically for WhatsApp-style chat bubbles without block-level divs,
+    allowing the bubble to shrink-wrap snugly to the text length on the right side.
+    """
+    if not text:
+        return ""
+    escaped = html.escape(text.strip())
+    # Bold **text**
+    escaped = re.sub(r"\*\*([^\*\n]+)\*\*", r'<strong style="color: #FFFFFF;">\1</strong>', escaped)
+    # Inline code `code`
+    escaped = re.sub(
+        r"`([^`\n]+)`",
+        r'<code style="background: #064030; color: #6EE7B7; padding: 1px 5px; border-radius: 3px; font-family: Consolas, monospace; font-size: 12px;">\1</code>',
+        escaped,
+    )
+    # Convert newlines to line breaks for inline display
+    return escaped.replace("\n", "<br/>")
+
+
 def render_actions_summary(actions: list) -> str:
     """
     Renders an elegant timeline card summarizing computer actions executed by the agent.
@@ -1703,20 +1723,25 @@ class OrsearchWindow(QMainWindow):
         attachments_html = "".join(attach_html_list)
 
         if role == "user":
-            formatted_text = render_markdown(text)
+            formatted_text = format_user_text(text)
             content = f"""
-            <table width="100%" border="0" cellpadding="0" cellspacing="0" style="margin: 8px 0 14px 0;">
+            <table width="100%" border="0" cellpadding="0" cellspacing="0" style="margin: 6px 0 10px 0;">
                 <tr>
-                    <td align="right">
-                        <div style="background: #151F30; border: 1px solid #263852; border-radius: 16px 16px 4px 16px; padding: 13px 18px; max-width: 680px; text-align: left;">
-                            <div style="font-size: 11px; font-weight: 700; color: #38BDF8; margin-bottom: 5px;">
-                                👤 YOU <span style="color: #64748B; font-size: 10px; font-weight: 400; margin-left: 8px;">{timestamp}</span>
-                            </div>
-                            {attachments_html}
-                            <div style="color: #F8FAFC; font-size: 14px; line-height: 1.6;">
-                                {formatted_text}
-                            </div>
-                        </div>
+                    <td width="30%">&nbsp;</td>
+                    <td width="70%" align="right">
+                        <table border="0" cellpadding="0" cellspacing="0" bgcolor="#0A4D3C" style="background-color: #0A4D3C; border: 1px solid #10B981; border-radius: 14px;">
+                            <tr>
+                                <td style="padding: 10px 16px; text-align: left;">
+                                    <div style="font-size: 11px; font-weight: 700; color: #6EE7B7; margin-bottom: 4px;">
+                                        👤 YOU <span style="color: #A7F3D0; font-size: 10px; font-weight: 400; margin-left: 8px;">{timestamp}</span>
+                                    </div>
+                                    {attachments_html}
+                                    <div style="color: #FFFFFF; font-size: 14px; line-height: 1.5;">
+                                        {formatted_text}
+                                    </div>
+                                </td>
+                            </tr>
+                        </table>
                     </td>
                 </tr>
             </table>
@@ -1724,7 +1749,7 @@ class OrsearchWindow(QMainWindow):
         elif role == "system":
             safe_text = html.escape(text)
             content = f"""
-            <div style="margin: 8px 12px; color: {TEXT_MUTED}; font-size: 12px; font-style: italic;">
+            <div style="margin: 8px 12px; color: {TEXT_MUTED}; font-size: 12px; font-style: italic; text-align: center;">
                 {safe_text}
             </div>
             """
@@ -1733,28 +1758,32 @@ class OrsearchWindow(QMainWindow):
             actions_html = render_actions_summary(actions) if actions else ""
 
             content = f"""
-            <table width="100%" border="0" cellpadding="0" cellspacing="0" style="margin: 10px 0 18px 0;">
+            <table width="100%" border="0" cellpadding="0" cellspacing="0" style="margin: 8px 0 12px 0;">
                 <tr>
-                    <td align="left">
-                        <div style="background: #0E121B; border: 1px solid #1C2332; border-left: 3px solid {EMERALD}; border-radius: 4px 16px 16px 16px; padding: 16px 20px; max-width: 860px; text-align: left;">
-                            <div style="margin-bottom: 8px;">
-                                <span style="color: {EMERALD_MINT}; font-size: 11px; font-weight: 800; letter-spacing: 0.6px;">⚡ ORSEARCH AI</span>
-                                <span style="background: {EMERALD_BG}; color: {EMERALD_MINT}; border: 1px solid {EMERALD_BORDER}; border-radius: 4px; font-size: 9px; font-weight: 700; padding: 1px 5px; margin-left: 8px;">PRO AGENT</span>
-                                <span style="color: {TEXT_SUBTLE}; font-size: 10px; margin-left: 8px;">{timestamp}</span>
-                            </div>
-                            {actions_html}
-                            <div style="color: #E2E8F0; font-size: 14px; line-height: 1.65;">
-                                {formatted_text}
-                            </div>
-                        </div>
+                    <td width="85%" align="left">
+                        <table border="0" cellpadding="0" cellspacing="0" bgcolor="#0E131E" style="background-color: #0E131E; border: 1px solid #1D273A; border-left: 3px solid {EMERALD}; border-radius: 14px;">
+                            <tr>
+                                <td style="padding: 14px 18px; text-align: left;">
+                                    <div style="margin-bottom: 6px;">
+                                        <span style="color: {EMERALD_MINT}; font-size: 11px; font-weight: 800; letter-spacing: 0.6px;">⚡ ORSEARCH AI</span>
+                                        <span style="background-color: {EMERALD_BG}; color: {EMERALD_MINT}; border: 1px solid {EMERALD_BORDER}; border-radius: 4px; font-size: 9px; font-weight: 700; padding: 1px 5px; margin-left: 8px;">PRO AGENT</span>
+                                        <span style="color: {TEXT_SUBTLE}; font-size: 10px; margin-left: 8px;">{timestamp}</span>
+                                    </div>
+                                    {actions_html}
+                                    <div style="color: #E2E8F0; font-size: 14px; line-height: 1.6;">
+                                        {formatted_text}
+                                    </div>
+                                </td>
+                            </tr>
+                        </table>
                     </td>
+                    <td width="15%">&nbsp;</td>
                 </tr>
             </table>
             """
 
         self.chat_view.moveCursor(QTextCursor.End)
         self.chat_view.insertHtml(content)
-        self.chat_view.insertPlainText("\n")
 
         sb = self.chat_view.verticalScrollBar()
         sb.setValue(sb.maximum())
