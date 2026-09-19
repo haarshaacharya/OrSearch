@@ -1,15 +1,9 @@
 import sys
-import uuid
-from datetime import datetime
+import os
+import html
 
-from PySide6.QtCore import Qt, QTimer, QSize, QPointF
-from PySide6.QtGui import (
-    QColor,
-    QPainter,
-    QPen,
-    QBrush,
-    QFont,
-)
+from PySide6.QtCore import Qt, QTimer, QThread, Signal
+from PySide6.QtGui import QPainter, QColor, QPen, QFont
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -18,44 +12,85 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QListWidget,
-    QListWidgetItem,
     QTextEdit,
     QLineEdit,
+    QFrame,
     QMessageBox,
     QInputDialog,
     QSizePolicy,
 )
 
+ROOT_DIR = os.path.dirname(
+    os.path.dirname(os.path.abspath(__file__))
+)
 
-RED = "#ff3b3b"
-RED_DARK = "#c62828"
-BG = "#090a0c"
-SIDEBAR = "#0d0f12"
-CARD = "#111317"
-CARD_HOVER = "#17191e"
-BORDER = "#22252b"
-TEXT = "#f5f5f5"
-MUTED = "#858a94"
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
 
+from agent import run_agent
+
+
+# =========================================================
+# COLORS
+# =========================================================
+
+BLACK = "#050505"
+SIDEBAR = "#0A0A0A"
+PANEL = "#0E0E0E"
+CARD = "#121212"
+CARD_HOVER = "#191919"
+BORDER = "#242424"
+
+WHITE = "#FFFFFF"
+TEXT = "#E8E8E8"
+MUTED = "#777777"
+
+GREEN = "#00FF88"
+GREEN_DARK = "#00C96B"
+GREEN_SOFT = "#73FFB2"
+
+
+# =========================================================
+# AGENT THREAD
+# =========================================================
+
+class AgentWorker(QThread):
+
+    finished = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, message):
+        super().__init__()
+        self.message = message
+
+    def run(self):
+        try:
+            result = run_agent(self.message)
+            self.finished.emit(result)
+        except Exception as e:
+            self.failed.emit(str(e))
+
+
+# =========================================================
+# ORSEARCH CORE
+# =========================================================
 
 class OrsearchCore(QWidget):
 
-    def __init__(self, parent=None, size=110):
+    def __init__(self, size=110, parent=None):
         super().__init__(parent)
+
+        self.size = size
+        self.angle = 0
 
         self.setFixedSize(size, size)
 
-        self.angle = 0
-        self.pulse = 0
-
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.animate)
-        self.timer.start(35)
+        self.timer.start(30)
 
     def animate(self):
-        self.angle += 1.2
-        self.pulse += 0.08
+        self.angle = (self.angle + 2) % 360
         self.update()
 
     def paintEvent(self, event):
@@ -63,95 +98,82 @@ class OrsearchCore(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
 
-        center = self.rect().center()
-        cx = center.x()
-        cy = center.y()
+        s = self.size
 
-        # Outer glow
-        for radius, alpha in [
-            (45, 15),
-            (40, 20),
-            (35, 28),
+        for width, alpha in [
+            (16, 12),
+            (11, 22),
+            (7, 35),
         ]:
 
-            color = QColor(255, 59, 59, alpha)
-
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(color)
-
-            painter.drawEllipse(
-                QPointF(cx, cy),
-                radius,
-                radius
+            pen = QPen(
+                QColor(0, 255, 136, alpha)
             )
 
-        # Outer ring
-        pen = QPen(QColor(255, 59, 59, 80))
-        pen.setWidth(1)
+            pen.setWidth(width)
+            painter.setPen(pen)
 
-        painter.setPen(pen)
-        painter.setBrush(Qt.NoBrush)
+            painter.drawEllipse(
+                width // 2,
+                width // 2,
+                s - width,
+                s - width
+            )
 
-        painter.drawEllipse(
-            QPointF(cx, cy),
-            39,
-            39
+        pen = QPen(
+            QColor(GREEN)
         )
 
-        # Rotating arc
-        pen = QPen(QColor(255, 59, 59, 230))
-        pen.setWidth(3)
-        pen.setCapStyle(Qt.RoundCap)
+        pen.setWidth(2)
+        painter.setPen(pen)
 
+        painter.drawEllipse(
+            10,
+            10,
+            s - 20,
+            s - 20
+        )
+
+        pen = QPen(
+            QColor(WHITE)
+        )
+
+        pen.setWidth(3)
         painter.setPen(pen)
 
         painter.drawArc(
-            23,
-            23,
-            54,
-            54,
-            int(-self.angle * 16),
-            90 * 16
+            14,
+            14,
+            s - 28,
+            s - 28,
+            self.angle * 16,
+            85 * 16
         )
 
-        # S shape
-        pen = QPen(QColor(255, 255, 255))
-        pen.setWidth(7)
-        pen.setCapStyle(Qt.RoundCap)
-        pen.setJoinStyle(Qt.RoundJoin)
+        painter.setPen(
+            QColor(WHITE)
+        )
 
-        painter.setPen(pen)
+        font = QFont(
+            "Segoe UI",
+            max(12, int(s * 0.40))
+        )
 
-        path_points = [
-            (cx + 18, cy - 20),
-            (cx + 7, cy - 27),
-            (cx - 10, cy - 25),
-            (cx - 19, cy - 15),
-            (cx - 19, cy - 5),
-            (cx - 10, cy + 2),
-            (cx + 9, cy + 8),
-            (cx + 18, cy + 15),
-            (cx + 15, cy + 23),
-            (cx + 3, cy + 28),
-            (cx - 13, cy + 25),
-        ]
+        font.setBold(True)
+        painter.setFont(font)
 
-        for i in range(len(path_points) - 1):
-
-            x1, y1 = path_points[i]
-            x2, y2 = path_points[i + 1]
-
-            painter.drawLine(
-                x1,
-                y1,
-                x2,
-                y2
-            )
-
-        painter.end()
+        painter.drawText(
+            self.rect(),
+            Qt.AlignCenter,
+            "S"
+        )
 
 
-class ChatRow(QWidget):
+# =========================================================
+# CHAT ITEM
+# =========================================================
+
+class ChatItem(QWidget):
 
     def __init__(
         self,
@@ -159,105 +181,175 @@ class ChatRow(QWidget):
         title,
         pinned,
         select_callback,
-        pin_callback,
         rename_callback,
+        pin_callback,
         delete_callback,
-        parent=None
     ):
 
-        super().__init__(parent)
+        super().__init__()
 
         self.chat_id = chat_id
 
-        self.setMinimumHeight(52)
-        self.setMaximumHeight(52)
+        self.layout = QHBoxLayout(self)
 
-        self.setStyleSheet(
-            f"""
-            ChatRow {{
-                background: transparent;
-                border-radius: 9px;
-            }}
-
-            ChatRow:hover {{
-                background: {CARD_HOVER};
-            }}
-
-            QLabel {{
-                color: {TEXT};
-                background: transparent;
-            }}
-
-            QPushButton {{
-                background: transparent;
-                border: none;
-                color: {MUTED};
-                font-size: 14px;
-                border-radius: 6px;
-            }}
-
-            QPushButton:hover {{
-                background: #22252b;
-                color: white;
-            }}
-            """
+        self.layout.setContentsMargins(
+            8,
+            3,
+            5,
+            3
         )
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 4, 6, 4)
-        layout.setSpacing(4)
+        self.layout.setSpacing(2)
 
-        self.title_label = QLabel(title)
-        self.title_label.setSizePolicy(
+        self.chat_button = QPushButton(
+            title
+        )
+
+        self.chat_button.setCursor(
+            Qt.PointingHandCursor
+        )
+
+        self.chat_button.setMinimumHeight(
+            38
+        )
+
+        self.chat_button.setSizePolicy(
             QSizePolicy.Expanding,
             QSizePolicy.Preferred
         )
 
-        self.title_label.setFont(
-            QFont("Segoe UI", 9)
+        self.chat_button.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                color: {TEXT};
+                border: none;
+                border-radius: 8px;
+                text-align: left;
+                padding: 0 8px;
+                font-size: 13px;
+            }}
+
+            QPushButton:hover {{
+                background: {CARD_HOVER};
+                color: {WHITE};
+            }}
+        """)
+
+        self.chat_button.clicked.connect(
+            lambda: select_callback(
+                self.chat_id
+            )
         )
 
-        layout.addWidget(self.title_label)
-
-        self.edit_button = QPushButton("✎")
-        self.edit_button.setFixedSize(28, 32)
-
-        self.edit_button.clicked.connect(
-            lambda: rename_callback(self.chat_id)
+        self.rename_button = QPushButton("✎")
+        self.rename_button.setFixedSize(
+            28,
+            34
         )
-
-        layout.addWidget(self.edit_button)
 
         self.pin_button = QPushButton(
-            "📌" if pinned else "○"
+            "●" if pinned else "○"
         )
 
-        self.pin_button.setFixedSize(28, 32)
-
-        self.pin_button.clicked.connect(
-            lambda: pin_callback(self.chat_id)
+        self.pin_button.setFixedSize(
+            28,
+            34
         )
-
-        layout.addWidget(self.pin_button)
 
         self.delete_button = QPushButton("×")
-        self.delete_button.setFixedSize(28, 32)
-
-        self.delete_button.clicked.connect(
-            lambda: delete_callback(self.chat_id)
+        self.delete_button.setFixedSize(
+            28,
+            34
         )
 
-        layout.addWidget(self.delete_button)
+        normal_style = f"""
+            QPushButton {{
+                background: transparent;
+                color: {MUTED};
+                border: none;
+                border-radius: 7px;
+                font-size: 14px;
+            }}
 
-        self.select_callback = select_callback
+            QPushButton:hover {{
+                background: {CARD_HOVER};
+                color: {WHITE};
+            }}
+        """
 
-    def mousePressEvent(self, event):
+        self.rename_button.setStyleSheet(
+            normal_style
+        )
 
-        if event.button() == Qt.LeftButton:
-            self.select_callback(self.chat_id)
+        self.delete_button.setStyleSheet(
+            normal_style
+        )
 
-        super().mousePressEvent(event)
+        self.pin_button.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                color: {GREEN if pinned else MUTED};
+                border: none;
+                border-radius: 7px;
+                font-size: 11px;
+            }}
 
+            QPushButton:hover {{
+                background: {CARD_HOVER};
+                color: {GREEN};
+            }}
+        """)
+
+        self.rename_button.clicked.connect(
+            lambda: rename_callback(
+                self.chat_id
+            )
+        )
+
+        self.pin_button.clicked.connect(
+            lambda: pin_callback(
+                self.chat_id
+            )
+        )
+
+        self.delete_button.clicked.connect(
+            lambda: delete_callback(
+                self.chat_id
+            )
+        )
+
+        self.layout.addWidget(
+            self.chat_button,
+            1
+        )
+
+        self.layout.addWidget(
+            self.rename_button
+        )
+
+        self.layout.addWidget(
+            self.pin_button
+        )
+
+        self.layout.addWidget(
+            self.delete_button
+        )
+
+        self.setStyleSheet(f"""
+            ChatItem {{
+                background: transparent;
+                border-radius: 9px;
+            }}
+
+            ChatItem:hover {{
+                background: {CARD};
+            }}
+        """)
+
+
+# =========================================================
+# MAIN WINDOW
+# =========================================================
 
 class OrsearchWindow(QMainWindow):
 
@@ -265,84 +357,78 @@ class OrsearchWindow(QMainWindow):
 
         super().__init__()
 
-        self.setWindowTitle("Orsearch")
+        self.setWindowTitle(
+            "Orsearch"
+        )
 
-        self.resize(1250, 780)
+        self.resize(
+            1200,
+            760
+        )
 
-        self.setMinimumSize(950, 600)
+        self.setMinimumSize(
+            900,
+            600
+        )
 
         self.chats = {}
-
         self.current_chat = None
+        self.chat_counter = 0
+        self.worker = None
 
-        self.setStyleSheet(
-            f"""
+        self.build_ui()
+
+        self.new_chat()
+
+
+    # =====================================================
+    # BUILD UI
+    # =====================================================
+
+    def build_ui(self):
+
+        self.setStyleSheet(f"""
             QMainWindow {{
-                background: {BG};
+                background: {BLACK};
             }}
 
             QWidget {{
                 font-family: "Segoe UI";
             }}
 
-            QListWidget {{
-                background: transparent;
-                border: none;
-                outline: none;
-            }}
-
-            QListWidget::item {{
-                border: none;
-                padding: 0px;
-                margin: 2px 4px;
-                background: transparent;
-            }}
-
-            QListWidget::item:selected {{
-                background: transparent;
-            }}
-
-            QTextEdit {{
-                background: transparent;
-                border: none;
-                color: {TEXT};
-                font-size: 15px;
-                selection-background-color: #343840;
-            }}
-
             QLineEdit {{
-                background: #15171b;
-                border: 1px solid #292c32;
-                border-radius: 14px;
-                color: white;
-                padding: 13px 16px;
+                background: {CARD};
+                color: {WHITE};
+                border: 1px solid {BORDER};
+                border-radius: 13px;
+                padding: 13px 15px;
                 font-size: 14px;
             }}
 
             QLineEdit:focus {{
-                border: 1px solid #454952;
+                border: 1px solid {GREEN_DARK};
             }}
 
-            QPushButton {{
-                border: none;
+            QScrollBar:vertical {{
+                background: {BLACK};
+                width: 7px;
             }}
-            """
+
+            QScrollBar::handle:vertical {{
+                background: #292929;
+                border-radius: 4px;
+            }}
+        """)
+
+        central = QWidget()
+
+        self.setCentralWidget(
+            central
         )
 
-        self.build_ui()
-
-        self.new_chat()
-
-    # ---------------------------------------------------------
-    # UI
-    # ---------------------------------------------------------
-
-    def build_ui(self):
-
-        root = QWidget()
-        self.setCentralWidget(root)
-
-        main_layout = QHBoxLayout(root)
+        main_layout = QHBoxLayout(
+            central
+        )
 
         main_layout.setContentsMargins(
             0,
@@ -353,105 +439,111 @@ class OrsearchWindow(QMainWindow):
 
         main_layout.setSpacing(0)
 
-        # =====================================================
+
+        # =================================================
         # SIDEBAR
-        # =====================================================
+        # =================================================
 
-        sidebar = QWidget()
+        sidebar = QFrame()
 
-        sidebar.setFixedWidth(275)
-
-        sidebar.setStyleSheet(
-            f"""
-            QWidget {{
-                background: {SIDEBAR};
-            }}
-            """
+        sidebar.setFixedWidth(
+            285
         )
 
-        sidebar_layout = QVBoxLayout(sidebar)
+        sidebar.setStyleSheet(f"""
+            QFrame {{
+                background: {SIDEBAR};
+                border-right: 1px solid {BORDER};
+            }}
+        """)
+
+        sidebar_layout = QVBoxLayout(
+            sidebar
+        )
 
         sidebar_layout.setContentsMargins(
             16,
             18,
             16,
-            14
+            16
         )
 
-        sidebar_layout.setSpacing(12)
+        sidebar_layout.setSpacing(
+            12
+        )
 
-        # Logo
+
+        # LOGO
+
         logo_layout = QHBoxLayout()
 
-        core = OrsearchCore(
-            size=58
+        logo_layout.setSpacing(
+            10
         )
 
-        logo_layout.addWidget(core)
-
-        logo_text = QVBoxLayout()
-
-        name = QLabel("Orsearch")
-
-        name.setFont(
-            QFont("Segoe UI", 17, QFont.Bold)
+        logo_core = OrsearchCore(
+            43
         )
 
-        name.setStyleSheet(
-            f"color: {TEXT};"
+        logo_text = QLabel(
+            "Orsearch"
         )
 
-        subtitle = QLabel("AI Computer Agent")
+        logo_text.setStyleSheet(f"""
+            QLabel {{
+                color: {WHITE};
+                font-size: 21px;
+                font-weight: 700;
+            }}
+        """)
 
-        subtitle.setFont(
-            QFont("Segoe UI", 8)
+        logo_layout.addWidget(
+            logo_core
         )
 
-        subtitle.setStyleSheet(
-            f"color: {MUTED};"
+        logo_layout.addWidget(
+            logo_text
         )
-
-        logo_text.addWidget(name)
-        logo_text.addWidget(subtitle)
-
-        logo_layout.addLayout(logo_text)
 
         logo_layout.addStretch()
 
-        sidebar_layout.addLayout(logo_layout)
+        sidebar_layout.addLayout(
+            logo_layout
+        )
 
-        # New Chat
+
+        # NEW CHAT
+
         self.new_chat_button = QPushButton(
             "+  New Chat"
         )
 
-        self.new_chat_button.setFixedHeight(44)
+        self.new_chat_button.setFixedHeight(
+            44
+        )
 
         self.new_chat_button.setCursor(
             Qt.PointingHandCursor
         )
 
-        self.new_chat_button.setStyleSheet(
-            f"""
+        self.new_chat_button.setStyleSheet(f"""
             QPushButton {{
-                background: {RED};
-                color: white;
+                background: {CARD};
+                color: {WHITE};
+                border: 1px solid {BORDER};
                 border-radius: 10px;
+                text-align: left;
+                padding-left: 15px;
                 font-size: 13px;
                 font-weight: 600;
-                text-align: left;
-                padding-left: 16px;
             }}
 
             QPushButton:hover {{
-                background: #ff5050;
+                background: {CARD_HOVER};
+                border: 1px solid {GREEN_DARK};
+                color: {GREEN_SOFT};
             }}
-
-            QPushButton:pressed {{
-                background: {RED_DARK};
-            }}
-            """
-        )
+        """)
 
         self.new_chat_button.clicked.connect(
             self.new_chat
@@ -461,190 +553,275 @@ class OrsearchWindow(QMainWindow):
             self.new_chat_button
         )
 
-        # Section
-        section = QLabel("YOUR CHATS")
 
-        section.setFont(
-            QFont("Segoe UI", 8, QFont.Bold)
+        # YOUR CHATS
+
+        chats_label = QLabel(
+            "YOUR CHATS"
         )
 
-        section.setStyleSheet(
+        chats_label.setStyleSheet(f"""
+            QLabel {{
+                color: #686868;
+                font-size: 10px;
+                font-weight: 700;
+                letter-spacing: 1px;
+                padding: 5px 3px;
+            }}
+        """)
+
+        sidebar_layout.addWidget(
+            chats_label
+        )
+
+
+        # CHAT CONTAINER
+        #
+        # Important:
+        # Simple QWidget + QVBoxLayout
+        # No QListWidget/custom item problem.
+
+        self.chat_container = QWidget()
+
+        self.chat_container.setStyleSheet(
             f"""
-            color: {MUTED};
-            padding: 8px 4px 2px 4px;
-            letter-spacing: 1px;
+            QWidget {{
+                background: transparent;
+            }}
             """
         )
 
-        sidebar_layout.addWidget(section)
+        self.chat_layout = QVBoxLayout(
+            self.chat_container
+        )
 
-        # Chat list
-        self.chat_list = QListWidget()
+        self.chat_layout.setContentsMargins(
+            0,
+            0,
+            0,
+            0
+        )
 
-        self.chat_list.setSpacing(2)
+        self.chat_layout.setSpacing(
+            3
+        )
+
+        self.chat_layout.setAlignment(
+            Qt.AlignTop
+        )
 
         sidebar_layout.addWidget(
-            self.chat_list
+            self.chat_container,
+            1
         )
 
-        # Bottom
-        bottom = QVBoxLayout()
 
-        line = QFrameLine()
+        # STATUS
 
-        bottom.addWidget(line)
-
-        status_layout = QHBoxLayout()
-
-        status_dot = QLabel("●")
-
-        status_dot.setStyleSheet(
-            "color: #38d996; font-size: 11px;"
+        sidebar_status = QLabel(
+            "●  SYSTEM READY"
         )
 
-        status = QLabel("System Ready")
+        sidebar_status.setStyleSheet(f"""
+            QLabel {{
+                color: {MUTED};
+                font-size: 10px;
+                padding: 5px;
+            }}
+        """)
 
-        status.setStyleSheet(
-            f"color: {MUTED}; font-size: 11px;"
+        sidebar_layout.addWidget(
+            sidebar_status
         )
 
-        status_layout.addWidget(
-            status_dot
-        )
 
-        status_layout.addWidget(
-            status
-        )
-
-        status_layout.addStretch()
-
-        bottom.addLayout(
-            status_layout
-        )
-
-        sidebar_layout.addLayout(
-            bottom
-        )
-
-        main_layout.addWidget(
-            sidebar
-        )
-
-        # =====================================================
+        # =================================================
         # MAIN CONTENT
-        # =====================================================
+        # =================================================
 
-        content = QWidget()
+        content = QFrame()
 
-        content_layout = QVBoxLayout(content)
+        content.setStyleSheet(f"""
+            QFrame {{
+                background: {BLACK};
+            }}
+        """)
+
+        content_layout = QVBoxLayout(
+            content
+        )
 
         content_layout.setContentsMargins(
-            0,
-            0,
-            0,
-            0
+            30,
+            22,
+            30,
+            24
         )
 
-        content_layout.setSpacing(0)
-
-        # Header
-        header = QWidget()
-
-        header.setFixedHeight(68)
-
-        header_layout = QHBoxLayout(header)
-
-        header_layout.setContentsMargins(
-            28,
-            0,
-            28,
-            0
+        content_layout.setSpacing(
+            12
         )
 
-        title = QLabel("Orsearch")
 
-        title.setFont(
-            QFont("Segoe UI", 14, QFont.Bold)
+        # HEADER
+
+        header = QHBoxLayout()
+
+        self.page_title = QLabel(
+            "Orsearch"
         )
 
-        title.setStyleSheet(
-            f"color: {TEXT};"
+        self.page_title.setStyleSheet(f"""
+            QLabel {{
+                color: {WHITE};
+                font-size: 18px;
+                font-weight: 700;
+            }}
+        """)
+
+        self.status_label = QLabel(
+            "READY"
         )
 
-        header_layout.addWidget(
-            title
+        header.addWidget(
+            self.page_title
         )
 
-        header_layout.addStretch()
-
-        ready = QLabel("●  READY")
-
-        ready.setFont(
-            QFont("Segoe UI", 8, QFont.Bold)
+        header.addSpacing(
+            10
         )
 
-        ready.setStyleSheet(
-            "color: #38d996;"
+        header.addWidget(
+            self.status_label
         )
 
-        header_layout.addWidget(
-            ready
-        )
+        header.addStretch()
 
-        content_layout.addWidget(
+        content_layout.addLayout(
             header
         )
 
-        # Separator
-        separator = QFrameLine()
 
-        content_layout.addWidget(
-            separator
+        # WELCOME
+
+        self.welcome = QWidget()
+
+        welcome_layout = QVBoxLayout(
+            self.welcome
         )
 
-        # Chat
+        welcome_layout.setAlignment(
+            Qt.AlignCenter
+        )
+
+        welcome_layout.setSpacing(
+            5
+        )
+
+        core = OrsearchCore(
+            125
+        )
+
+        welcome_title = QLabel(
+            "What can I do for you?"
+        )
+
+        welcome_title.setAlignment(
+            Qt.AlignCenter
+        )
+
+        welcome_title.setStyleSheet(f"""
+            QLabel {{
+                color: {WHITE};
+                font-size: 25px;
+                font-weight: 600;
+                margin-top: 8px;
+            }}
+        """)
+
+        welcome_subtitle = QLabel(
+            "Search the web, control your computer, or execute tasks."
+        )
+
+        welcome_subtitle.setAlignment(
+            Qt.AlignCenter
+        )
+
+        welcome_subtitle.setStyleSheet(f"""
+            QLabel {{
+                color: {MUTED};
+                font-size: 13px;
+            }}
+        """)
+
+        welcome_layout.addWidget(
+            core
+        )
+
+        welcome_layout.addWidget(
+            welcome_title
+        )
+
+        welcome_layout.addWidget(
+            welcome_subtitle
+        )
+
+        content_layout.addWidget(
+            self.welcome
+        )
+
+
+        # CHAT VIEW
+
         self.chat_view = QTextEdit()
 
-        self.chat_view.setReadOnly(True)
+        self.chat_view.setReadOnly(
+            True
+        )
 
-        self.chat_view.setAcceptRichText(True)
+        self.chat_view.setStyleSheet(f"""
+            QTextEdit {{
+                background: transparent;
+                color: {TEXT};
+                border: none;
+                padding: 8px;
+                font-size: 14px;
+            }}
+        """)
 
         content_layout.addWidget(
-            self.chat_view
+            self.chat_view,
+            1
         )
 
-        # Input section
-        input_container = QWidget()
 
-        input_layout = QVBoxLayout(
-            input_container
-        )
+        # QUICK ACTIONS
 
-        input_layout.setContentsMargins(
-            24,
-            12,
-            24,
-            22
-        )
-
-        # Quick buttons
         quick_layout = QHBoxLayout()
 
-        quick_layout.setSpacing(8)
-
-        self.create_quick_button(
-            quick_layout,
-            "Browse Web",
-            "Chrome kholo aur web browse karo"
+        quick_layout.setSpacing(
+            8
         )
 
-        self.create_quick_button(
+        self.add_quick_button(
             quick_layout,
-            "Control PC",
-            "Notepad kholo"
+            "Open Chrome",
+            "Open Chrome"
         )
 
-        self.create_quick_button(
+        self.add_quick_button(
+            quick_layout,
+            "Search Web",
+            "Search Google for "
+        )
+
+        self.add_quick_button(
+            quick_layout,
+            "Open Notepad",
+            "Open Notepad"
+        )
+
+        self.add_quick_button(
             quick_layout,
             "Screenshot",
             "Take a screenshot"
@@ -652,29 +829,27 @@ class OrsearchWindow(QMainWindow):
 
         quick_layout.addStretch()
 
-        input_layout.addLayout(
+        content_layout.addLayout(
             quick_layout
         )
 
-        # Input row
-        row = QHBoxLayout()
 
-        row.setSpacing(10)
+        # INPUT
+
+        input_layout = QHBoxLayout()
+
+        input_layout.setSpacing(
+            8
+        )
 
         self.input = QLineEdit()
 
         self.input.setPlaceholderText(
-            "Ask Orsearch to do something..."
+            "Message Orsearch..."
         )
-
-        self.input.setMinimumHeight(48)
 
         self.input.returnPressed.connect(
             self.send_message
-        )
-
-        row.addWidget(
-            self.input
         )
 
         self.send_button = QPushButton(
@@ -682,7 +857,7 @@ class OrsearchWindow(QMainWindow):
         )
 
         self.send_button.setFixedSize(
-            48,
+            51,
             48
         )
 
@@ -690,78 +865,94 @@ class OrsearchWindow(QMainWindow):
             Qt.PointingHandCursor
         )
 
-        self.send_button.setStyleSheet(
-            f"""
+        self.send_button.setStyleSheet(f"""
             QPushButton {{
-                background: {RED};
-                color: white;
-                border-radius: 13px;
-                font-size: 18px;
+                background: {GREEN};
+                color: #00170B;
+                border: none;
+                border-radius: 12px;
+                font-size: 20px;
+                font-weight: 700;
             }}
 
             QPushButton:hover {{
-                background: #ff5050;
+                background: {GREEN_SOFT};
             }}
-            """
-        )
+
+            QPushButton:pressed {{
+                background: {GREEN_DARK};
+            }}
+        """)
 
         self.send_button.clicked.connect(
             self.send_message
         )
 
-        row.addWidget(
+        input_layout.addWidget(
+            self.input,
+            1
+        )
+
+        input_layout.addWidget(
             self.send_button
         )
 
-        input_layout.addLayout(
-            row
+        content_layout.addLayout(
+            input_layout
         )
 
-        content_layout.addWidget(
-            input_container
+
+        main_layout.addWidget(
+            sidebar
         )
 
         main_layout.addWidget(
             content
         )
 
-    # ---------------------------------------------------------
-    # QUICK BUTTON
-    # ---------------------------------------------------------
+        self.set_status(
+            "READY"
+        )
 
-    def create_quick_button(
+
+    # =====================================================
+    # QUICK BUTTON
+    # =====================================================
+
+    def add_quick_button(
         self,
         layout,
-        text,
+        title,
         command
     ):
 
-        button = QPushButton(text)
+        button = QPushButton(
+            title
+        )
 
-        button.setFixedHeight(32)
+        button.setFixedHeight(
+            32
+        )
 
         button.setCursor(
             Qt.PointingHandCursor
         )
 
-        button.setStyleSheet(
-            f"""
+        button.setStyleSheet(f"""
             QPushButton {{
-                background: #131519;
-                color: #a7abb4;
-                border: 1px solid #24272d;
-                border-radius: 9px;
-                padding: 0px 13px;
+                background: {PANEL};
+                color: #999999;
+                border: 1px solid {BORDER};
+                border-radius: 8px;
+                padding: 0 12px;
                 font-size: 11px;
             }}
 
             QPushButton:hover {{
-                background: #1b1d22;
-                color: white;
-                border-color: #363a42;
+                color: {WHITE};
+                border: 1px solid {GREEN_DARK};
             }}
-            """
-        )
+        """)
 
         button.clicked.connect(
             lambda: self.set_input(command)
@@ -771,119 +962,150 @@ class OrsearchWindow(QMainWindow):
             button
         )
 
-    # ---------------------------------------------------------
+
+    # =====================================================
+    # STATUS
+    # =====================================================
+
+    def set_status(
+        self,
+        status
+    ):
+
+        self.status_label.setText(
+            status
+        )
+
+        if status == "READY":
+
+            color = MUTED
+            bg = PANEL
+            border = BORDER
+
+        elif status in [
+            "THINKING",
+            "EXECUTING"
+        ]:
+
+            color = GREEN_SOFT
+            bg = "#0B1C13"
+            border = "#174D32"
+
+        elif status == "DONE":
+
+            color = GREEN
+            bg = "#0B2116"
+            border = "#174D32"
+
+        else:
+
+            color = WHITE
+            bg = "#1C1C1C"
+            border = "#333333"
+
+        self.status_label.setStyleSheet(f"""
+            QLabel {{
+                color: {color};
+                background: {bg};
+                border: 1px solid {border};
+                border-radius: 7px;
+                padding: 5px 9px;
+                font-size: 9px;
+                font-weight: 700;
+            }}
+        """)
+
+
+    # =====================================================
+    # CHAT LIST
+    # =====================================================
+
+    def rebuild_chat_list(self):
+
+        while self.chat_layout.count():
+
+            item = self.chat_layout.takeAt(0)
+
+            widget = item.widget()
+
+            if widget:
+                widget.deleteLater()
+
+        sorted_chats = sorted(
+            self.chats.items(),
+            key=lambda item: (
+                not item[1]["pinned"],
+                item[0]
+            )
+        )
+
+        for chat_id, chat in sorted_chats:
+
+            row = ChatItem(
+                chat_id=chat_id,
+                title=chat["title"],
+                pinned=chat["pinned"],
+                select_callback=self.select_chat,
+                rename_callback=self.rename_chat,
+                pin_callback=self.toggle_pin,
+                delete_callback=self.delete_chat,
+            )
+
+            if chat_id == self.current_chat:
+
+                row.chat_button.setStyleSheet(f"""
+                    QPushButton {{
+                        background: #13241B;
+                        color: {GREEN_SOFT};
+                        border: 1px solid #1A4931;
+                        border-radius: 8px;
+                        text-align: left;
+                        padding: 0 8px;
+                        font-size: 13px;
+                        font-weight: 600;
+                    }}
+                """)
+
+            self.chat_layout.addWidget(
+                row
+            )
+
+
+    # =====================================================
     # NEW CHAT
-    # ---------------------------------------------------------
+    # =====================================================
 
     def new_chat(self):
 
-        chat_id = str(
-            uuid.uuid4()
+        self.chat_counter += 1
+
+        chat_id = (
+            f"chat_{self.chat_counter}"
         )
 
         self.chats[chat_id] = {
-            "title": "New Chat",
+            "title": f"New Chat {self.chat_counter}",
             "pinned": False,
-            "messages": [],
-            "created": datetime.now()
+            "messages": []
         }
 
         self.current_chat = chat_id
 
         self.rebuild_chat_list()
 
-        self.show_welcome()
-
-        self.input.clear()
+        self.show_chat()
 
         self.input.setFocus()
 
-    # ---------------------------------------------------------
-    # CHAT LIST
-    # ---------------------------------------------------------
 
-    def rebuild_chat_list(self):
-
-        self.chat_list.clear()
-
-        # Pinned chats first
-        chat_items = sorted(
-            self.chats.items(),
-            key=lambda item: (
-                not item[1]["pinned"],
-                item[1]["created"]
-            )
-        )
-
-        for chat_id, chat in chat_items:
-
-            item = QListWidgetItem()
-
-            # IMPORTANT:
-            # setSizeHint needs QSize, not int
-            item.setSizeHint(
-                QSize(0, 52)
-            )
-
-            row = ChatRow(
-                chat_id,
-                chat["title"],
-                chat["pinned"],
-                self.select_chat,
-                self.toggle_pin,
-                self.rename_chat,
-                self.delete_chat
-            )
-
-            self.chat_list.addItem(
-                item
-            )
-
-            self.chat_list.setItemWidget(
-                item,
-                row
-            )
-
-            if chat_id == self.current_chat:
-
-                item.setSelected(True)
-
-                self.chat_list.setCurrentItem(
-                    item
-                )
-
-                row.setStyleSheet(
-                    f"""
-                    ChatRow {{
-                        background: #191a1f;
-                        border-left: 2px solid {RED};
-                        border-radius: 9px;
-                    }}
-
-                    QLabel {{
-                        color: {TEXT};
-                        background: transparent;
-                    }}
-
-                    QPushButton {{
-                        background: transparent;
-                        border: none;
-                        color: {MUTED};
-                        border-radius: 6px;
-                    }}
-
-                    QPushButton:hover {{
-                        background: #292c32;
-                        color: white;
-                    }}
-                    """
-                )
-
-    # ---------------------------------------------------------
+    # =====================================================
     # SELECT CHAT
-    # ---------------------------------------------------------
+    # =====================================================
 
-    def select_chat(self, chat_id):
+    def select_chat(
+        self,
+        chat_id
+    ):
 
         if chat_id not in self.chats:
             return
@@ -892,178 +1114,164 @@ class OrsearchWindow(QMainWindow):
 
         self.rebuild_chat_list()
 
-        self.show_chat(
-            chat_id
-        )
+        self.show_chat()
 
-        self.input.clear()
 
-        self.input.setFocus()
-
-    # ---------------------------------------------------------
+    # =====================================================
     # SHOW CHAT
-    # ---------------------------------------------------------
+    # =====================================================
 
-    def show_chat(self, chat_id):
+    def show_chat(self):
+
+        if not self.current_chat:
+            return
+
+        chat = self.chats[
+            self.current_chat
+        ]
+
+        self.page_title.setText(
+            chat["title"]
+        )
 
         self.chat_view.clear()
 
-        chat = self.chats.get(
-            chat_id
-        )
-
-        if not chat:
-            return
-
         if not chat["messages"]:
 
-            self.show_welcome()
+            self.chat_view.hide()
+
+            self.welcome.show()
 
             return
+
+        self.welcome.hide()
+
+        self.chat_view.show()
 
         for message in chat["messages"]:
 
-            self.add_message_to_view(
+            self.render_message(
                 message["role"],
                 message["text"]
             )
+
+
+    # =====================================================
+    # RENDER MESSAGE
+    # =====================================================
+
+    def render_message(
+        self,
+        role,
+        text
+    ):
+
+        safe = html.escape(
+            str(text)
+        ).replace(
+            "\n",
+            "<br>"
+        )
+
+        if role == "user":
+
+            content = f"""
+            <div style="
+                margin: 12px 5px;
+                padding: 14px 16px;
+                background: {CARD};
+                border: 1px solid {BORDER};
+                border-radius: 13px;
+            ">
+
+                <div style="
+                    color: {GREEN};
+                    font-size: 10px;
+                    font-weight: 700;
+                    margin-bottom: 6px;
+                ">
+                    YOU
+                </div>
+
+                <div style="
+                    color: {TEXT};
+                    font-size: 14px;
+                ">
+                    {safe}
+                </div>
+
+            </div>
+            """
+
+        elif role == "system":
+
+            content = f"""
+            <div style="
+                margin: 10px 8px;
+                color: {MUTED};
+                font-size: 11px;
+            ">
+                {safe}
+            </div>
+            """
+
+        else:
+
+            content = f"""
+            <div style="
+                margin: 12px 5px;
+                padding: 14px 16px;
+                background: {PANEL};
+                border: 1px solid {BORDER};
+                border-left: 2px solid {GREEN};
+                border-radius: 13px;
+            ">
+
+                <div style="
+                    color: {WHITE};
+                    font-size: 10px;
+                    font-weight: 700;
+                    margin-bottom: 6px;
+                ">
+                    ORSEARCH
+                </div>
+
+                <div style="
+                    color: #D7D7D7;
+                    font-size: 14px;
+                    line-height: 1.6;
+                ">
+                    {safe}
+                </div>
+
+            </div>
+            """
+
+        self.chat_view.moveCursor(
+            self.chat_view.textCursor().End
+        )
+
+        self.chat_view.insertHtml(
+            content
+        )
+
+        self.chat_view.insertPlainText(
+            "\n"
+        )
 
         self.chat_view.verticalScrollBar().setValue(
             self.chat_view.verticalScrollBar().maximum()
         )
 
-    # ---------------------------------------------------------
-    # PIN
-    # ---------------------------------------------------------
 
-    def toggle_pin(self, chat_id):
-
-        if chat_id not in self.chats:
-            return
-
-        self.chats[chat_id]["pinned"] = not self.chats[chat_id]["pinned"]
-
-        self.rebuild_chat_list()
-
-    # ---------------------------------------------------------
-    # RENAME
-    # ---------------------------------------------------------
-
-    def rename_chat(self, chat_id):
-
-        if chat_id not in self.chats:
-            return
-
-        old_title = self.chats[chat_id]["title"]
-
-        title, ok = QInputDialog.getText(
-            self,
-            "Rename Chat",
-            "Enter new chat name:",
-            QLineEdit.Normal,
-            old_title
-        )
-
-        if ok and title.strip():
-
-            self.chats[chat_id]["title"] = title.strip()
-
-            self.rebuild_chat_list()
-
-    # ---------------------------------------------------------
-    # DELETE
-    # ---------------------------------------------------------
-
-    def delete_chat(self, chat_id):
-
-        if chat_id not in self.chats:
-            return
-
-        title = self.chats[chat_id]["title"]
-
-        answer = QMessageBox.question(
-            self,
-            "Delete Chat",
-            f'Delete "{title}"?\n\nThis action cannot be undone.',
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
-
-        if answer != QMessageBox.Yes:
-            return
-
-        del self.chats[chat_id]
-
-        if chat_id == self.current_chat:
-
-            self.current_chat = None
-
-            if self.chats:
-
-                # Open first available chat
-                first_chat = next(
-                    iter(self.chats)
-                )
-
-                self.current_chat = first_chat
-
-                self.rebuild_chat_list()
-
-                self.show_chat(
-                    first_chat
-                )
-
-            else:
-
-                self.new_chat()
-
-        else:
-
-            self.rebuild_chat_list()
-
-    # ---------------------------------------------------------
-    # WELCOME
-    # ---------------------------------------------------------
-
-    def show_welcome(self):
-
-        self.chat_view.clear()
-
-        html = f"""
-        <div style="
-            text-align:center;
-            margin-top:90px;
-        ">
-
-            <div style="
-                color:{TEXT};
-                font-size:28px;
-                font-weight:700;
-            ">
-                What can I do for you?
-            </div>
-
-            <div style="
-                color:{MUTED};
-                font-size:13px;
-                margin-top:10px;
-            ">
-                Control your computer, browse the web,
-                or ask me anything.
-            </div>
-
-        </div>
-        """
-
-        self.chat_view.setHtml(
-            html
-        )
-
-    # ---------------------------------------------------------
+    # =====================================================
     # INPUT
-    # ---------------------------------------------------------
+    # =====================================================
 
-    def set_input(self, text):
+    def set_input(
+        self,
+        text
+    ):
 
         self.input.setText(
             text
@@ -1071,9 +1279,14 @@ class OrsearchWindow(QMainWindow):
 
         self.input.setFocus()
 
-    # ---------------------------------------------------------
-    # SEND
-    # ---------------------------------------------------------
+        self.input.setCursorPosition(
+            len(text)
+        )
+
+
+    # =====================================================
+    # SEND MESSAGE
+    # =====================================================
 
     def send_message(self):
 
@@ -1082,263 +1295,310 @@ class OrsearchWindow(QMainWindow):
         if not text:
             return
 
-        if not self.current_chat:
-            self.new_chat()
+        if self.worker and self.worker.isRunning():
+            return
 
-        chat = self.chats[
+        self.input.clear()
+
+        self.welcome.hide()
+
+        self.chat_view.show()
+
+        self.chats[
             self.current_chat
-        ]
+        ]["messages"].append({
+            "role": "user",
+            "text": text
+        })
 
-        # First message becomes title
-        if (
-            chat["title"] == "New Chat"
-            and not chat["messages"]
-        ):
-
-            clean_title = text.replace(
-                "\n",
-                " "
-            ).strip()
-
-            if len(clean_title) > 30:
-                clean_title = (
-                    clean_title[:30] + "..."
-                )
-
-            chat["title"] = clean_title
-
-            self.rebuild_chat_list()
-
-        chat["messages"].append(
-            {
-                "role": "user",
-                "text": text
-            }
-        )
-
-        self.add_message_to_view(
+        self.render_message(
             "user",
             text
         )
 
-        self.input.clear()
-
-        self.chat_view.verticalScrollBar().setValue(
-            self.chat_view.verticalScrollBar().maximum()
+        self.set_status(
+            "THINKING"
         )
 
-        # AI response
-        QTimer.singleShot(
-            400,
-            lambda: self.ai_response(text)
+        self.send_button.setDisabled(
+            True
         )
 
-    # ---------------------------------------------------------
-    # AI RESPONSE
-    # ---------------------------------------------------------
-
-    def ai_response(self, user_text):
-
-        response = self.generate_response(
-            user_text
+        self.input.setDisabled(
+            True
         )
 
-        if self.current_chat not in self.chats:
-            return
-
-        self.chats[
-            self.current_chat
-        ]["messages"].append(
-            {
-                "role": "assistant",
-                "text": response
-            }
+        self.render_message(
+            "system",
+            "Orsearch is thinking..."
         )
 
-        self.add_message_to_view(
-            "assistant",
-            response
+        self.worker = AgentWorker(
+            text
         )
 
-        self.chat_view.verticalScrollBar().setValue(
-            self.chat_view.verticalScrollBar().maximum()
+        self.worker.finished.connect(
+            self.agent_finished
         )
 
-    # ---------------------------------------------------------
-    # TEMP RESPONSE
-    # ---------------------------------------------------------
-
-    def generate_response(self, text):
-
-        lower = text.lower()
-
-        if (
-            "hello" in lower
-            or "hi" in lower
-            or "hey" in lower
-        ):
-
-            return (
-                "Hello! I'm Orsearch. "
-                "Tell me what you want me to do on your computer."
-            )
-
-        if "chrome" in lower:
-
-            return (
-                "I understand. The next step is to connect "
-                "this UI with the Orsearch computer agent so "
-                "I can actually control Chrome."
-            )
-
-        if "notepad" in lower:
-
-            return (
-                "Notepad control is ready to be connected "
-                "with the PyAutoGUI agent."
-            )
-
-        if (
-            "screenshot" in lower
-            or "screen" in lower
-        ):
-
-            return (
-                "Screenshot functionality is already available "
-                "in the Orsearch agent. Vision analysis will be "
-                "connected here next."
-            )
-
-        if (
-            "web" in lower
-            or "search" in lower
-        ):
-
-            return (
-                "Web browsing will be handled through the "
-                "computer-control agent using Chrome."
-            )
-
-        return (
-            "Got it. I can understand this request, but my "
-            "computer-control agent is not connected to the UI yet. "
-            "Once connected, Orsearch will be able to plan the task "
-            "and execute allowed actions on your PC."
+        self.worker.failed.connect(
+            self.agent_failed
         )
 
-    # ---------------------------------------------------------
-    # MESSAGE VIEW
-    # ---------------------------------------------------------
+        self.worker.start()
 
-    def add_message_to_view(
+
+    # =====================================================
+    # AGENT FINISHED
+    # =====================================================
+
+    def agent_finished(
         self,
-        role,
-        text
+        result
     ):
 
-        if role == "user":
+        self.remove_thinking()
 
-            html = f"""
-            <div style="
-                margin:14px 10px;
-                padding:13px 16px;
-                background:#1b1d22;
-                border-radius:12px;
-            ">
+        if isinstance(result, dict):
 
-                <div style="
-                    color:#ffffff;
-                    font-size:14px;
-                    font-weight:600;
-                    margin-bottom:5px;
-                ">
-                    You
-                </div>
+            message = result.get(
+                "message",
+                "Task completed."
+            )
 
-                <div style="
-                    color:#e5e7eb;
-                    font-size:14px;
-                ">
-                    {self.escape_html(text)}
-                </div>
-
-            </div>
-            """
+            success = result.get(
+                "success",
+                True
+            )
 
         else:
 
-            html = f"""
-            <div style="
-                margin:14px 10px;
-                padding:13px 16px;
-                background:#101216;
-                border:1px solid #20232a;
-                border-radius:12px;
-            ">
+            message = str(
+                result
+            )
 
-                <div style="
-                    color:{RED};
-                    font-size:14px;
-                    font-weight:700;
-                    margin-bottom:5px;
-                ">
-                    Orsearch
-                </div>
+            success = True
 
-                <div style="
-                    color:#d7d9de;
-                    font-size:14px;
-                    line-height:1.5;
-                ">
-                    {self.escape_html(text)}
-                </div>
+        if success:
 
-            </div>
-            """
+            self.set_status(
+                "DONE"
+            )
+
+        else:
+
+            self.set_status(
+                "FAILED"
+            )
+
+        self.chats[
+            self.current_chat
+        ]["messages"].append({
+            "role": "assistant",
+            "text": message
+        })
+
+        self.render_message(
+            "assistant",
+            message
+        )
+
+        self.send_button.setDisabled(
+            False
+        )
+
+        self.input.setDisabled(
+            False
+        )
+
+        self.input.setFocus()
+
+        self.rebuild_chat_list()
+
+        self.worker = None
+
+
+    # =====================================================
+    # AGENT ERROR
+    # =====================================================
+
+    def agent_failed(
+        self,
+        error
+    ):
+
+        self.remove_thinking()
+
+        self.set_status(
+            "ERROR"
+        )
+
+        message = (
+            f"Agent error: {error}"
+        )
+
+        self.chats[
+            self.current_chat
+        ]["messages"].append({
+            "role": "assistant",
+            "text": message
+        })
+
+        self.render_message(
+            "assistant",
+            message
+        )
+
+        self.send_button.setDisabled(
+            False
+        )
+
+        self.input.setDisabled(
+            False
+        )
+
+        self.input.setFocus()
+
+        self.worker = None
+
+
+    # =====================================================
+    # REMOVE THINKING
+    # =====================================================
+
+    def remove_thinking(self):
 
         cursor = self.chat_view.textCursor()
 
         cursor.movePosition(
-            cursor.MoveOperation.End
+            cursor.End
         )
 
-        cursor.insertHtml(
-            html
+        cursor.select(
+            cursor.BlockUnderCursor
         )
 
-        cursor.insertBlock()
+        if "Orsearch is thinking..." in cursor.selectedText():
+
+            cursor.removeSelectedText()
+
+            cursor.deletePreviousChar()
 
         self.chat_view.setTextCursor(
             cursor
         )
 
-    # ---------------------------------------------------------
-    # HTML ESCAPE
-    # ---------------------------------------------------------
 
-    def escape_html(self, text):
+    # =====================================================
+    # RENAME CHAT
+    # =====================================================
 
-        return (
-            text
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace("\n", "<br>")
+    def rename_chat(
+        self,
+        chat_id
+    ):
+
+        if chat_id not in self.chats:
+            return
+
+        old_title = self.chats[
+            chat_id
+        ]["title"]
+
+        title, ok = QInputDialog.getText(
+            self,
+            "Rename Chat",
+            "Chat name:",
+            text=old_title
         )
 
+        if ok and title.strip():
 
-class QFrameLine(QWidget):
+            self.chats[
+                chat_id
+            ]["title"] = title.strip()
 
-    def __init__(self, parent=None):
+            self.rebuild_chat_list()
 
-        super().__init__(parent)
+            if chat_id == self.current_chat:
 
-        self.setFixedHeight(1)
+                self.page_title.setText(
+                    title.strip()
+                )
 
-        self.setStyleSheet(
-            "background:#202329;"
+
+    # =====================================================
+    # PIN CHAT
+    # =====================================================
+
+    def toggle_pin(
+        self,
+        chat_id
+    ):
+
+        if chat_id not in self.chats:
+            return
+
+        self.chats[
+            chat_id
+        ]["pinned"] = not self.chats[
+            chat_id
+        ]["pinned"]
+
+        self.rebuild_chat_list()
+
+
+    # =====================================================
+    # DELETE CHAT
+    # =====================================================
+
+    def delete_chat(
+        self,
+        chat_id
+    ):
+
+        if chat_id not in self.chats:
+            return
+
+        if len(self.chats) == 1:
+
+            QMessageBox.information(
+                self,
+                "Delete Chat",
+                "At least one chat must remain."
+            )
+
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "Delete Chat",
+            "Delete this conversation?",
+            QMessageBox.Yes |
+            QMessageBox.No
         )
 
+        if answer != QMessageBox.Yes:
+            return
+
+        del self.chats[
+            chat_id
+        ]
+
+        if self.current_chat == chat_id:
+
+            self.current_chat = next(
+                iter(self.chats)
+            )
+
+        self.rebuild_chat_list()
+
+        self.show_chat()
+
+
+# =========================================================
+# START
+# =========================================================
 
 def main():
 
