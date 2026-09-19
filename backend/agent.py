@@ -9,7 +9,7 @@ from .image_gen import generate_image
 
 MODEL = "qwen3:4b"
 
-CODING_SYSTEM_PROMPT = """You are Orsearch AI, a world-class coding assistant and desktop intelligence system.
+CODING_SYSTEM_PROMPT = """You are Orsearch AI, an elite software engineer and desktop intelligence assistant.
 Provide fast, precise, and expert solutions.
 When writing code:
 - Always use fenced code blocks with language identifiers (e.g. ```python, ```javascript, ```html, ```cpp).
@@ -18,20 +18,60 @@ When writing code:
 
 
 def is_image_generation_request(text: str) -> tuple[bool, str]:
+    """
+    Robust intent classifier for AI image generation.
+    Catches variations in English and Hindi/Hinglish:
+    - 'make ms dhoni image', 'generate image of cat', 'create an image of taj mahal'
+    - 'ms dhoni photo', 'draw a lion', 'wallpaper of sunset'
+    - 'ms dhoni ki image banao', 'photo banao ek car ki', 'tasveer banao'
+    """
     lower = text.lower().strip()
-    image_triggers = [
-        "generate image", "create image", "make an image", "draw an image",
-        "draw a", "generate a picture", "picture of", "photo of", "generate art",
-        "image banao", "photo banao", "tasveer banao", "picture banao", "draw"
+
+    image_nouns = [
+        "image", "images", "photo", "photos", "picture", "pictures",
+        "pic", "pics", "wallpaper", "portrait", "tasveer", "chhavi",
+        "drawing", "artwork", "painting"
     ]
-    for trigger in image_triggers:
-        if trigger in lower:
-            # Extract prompt by stripping trigger
-            clean = re.sub(re.escape(trigger), "", text, flags=re.IGNORECASE).strip()
-            clean = clean.lstrip("of: ").lstrip("for: ").lstrip(":").strip()
-            if not clean:
-                clean = text
-            return True, clean
+    action_verbs = [
+        "make", "generate", "create", "draw", "paint", "render",
+        "show", "produce", "banao", "chahiye", "dikhao", "tasveer"
+    ]
+
+    has_noun = any(re.search(r"\b" + re.escape(n) + r"\b", lower) for n in image_nouns)
+    has_verb = any(re.search(r"\b" + re.escape(v) + r"\b", lower) for v in action_verbs)
+
+    direct_starts = (
+        lower.startswith("image of")
+        or lower.startswith("photo of")
+        or lower.startswith("picture of")
+        or lower.startswith("pic of")
+        or lower.startswith("draw ")
+        or lower.startswith("paint ")
+    )
+    direct_ends = any(lower.endswith(" " + n) for n in image_nouns) or lower in image_nouns
+
+    if (has_noun and has_verb) or direct_starts or direct_ends:
+        # Clean filler words to extract the true subject
+        clean = text
+        remove_patterns = [
+            r"\b(can you|please|kindly|could you)\b",
+            r"\b(generate|create|make|draw|paint|render|show me|give me)\b",
+            r"\b(an?|the)\b",
+            r"\b(image of|photo of|picture of|pic of|wallpaper of)\b",
+            r"\b(image|images|photo|photos|picture|pictures|pic|pics|wallpaper|portrait|tasveer|chhavi|artwork)\b",
+            r"\b(banao|karo|dikhao|chahiye|ki|ke|ka|ek|wali|wala)\b",
+        ]
+        for pat in remove_patterns:
+            clean = re.sub(pat, "", clean, flags=re.IGNORECASE)
+
+        clean = re.sub(r"\s+", " ", clean).strip()
+        clean = clean.strip(":,.-_ ")
+
+        if not clean or len(clean) < 2:
+            clean = text
+
+        return True, clean
+
     return False, text
 
 
@@ -108,26 +148,31 @@ def run_agent(user_request: str, attachments: list = None) -> dict:
             }
 
         # -------------------------------------------------------------
-        # 2. AI Image Generation Intent
+        # 2. AI Image Generation Intent (High-Priority Match)
         # -------------------------------------------------------------
         is_img_gen, img_prompt = is_image_generation_request(user_request)
         if is_img_gen:
-            gen_res = generate_image(img_prompt)
+            # Enrich prompt for realistic high-definition results
+            enriched_prompt = f"{img_prompt}, ultra realistic, highly detailed portrait, 8k resolution, cinematic lighting"
+            gen_res = generate_image(enriched_prompt)
+
             if gen_res.get("success") and gen_res.get("image_path"):
                 img_path = gen_res["image_path"]
                 response_msg = (
-                    f"Generated AI image for: **{img_prompt}**\n\n"
-                    f"![Generated Image](file:///{img_path})\n\n"
-                    f"*Saved locally to:* `{img_path}`"
+                    f"### 🎨 AI Generated Artwork\n\n"
+                    f"**Subject:** *{img_prompt}*\n\n"
+                    f"![{img_prompt}](file:///{img_path})\n\n"
+                    f"📁 *Saved to local disk:* `{img_path}`"
                 )
                 return {
                     "success": True,
                     "message": response_msg,
                     "image_path": img_path,
+                    "is_image": True,
                     "actions": [
                         {
-                            "action": {"type": "generate_image", "prompt": img_prompt},
-                            "result": {"success": True, "message": "Image generated successfully"}
+                            "action": {"type": "generate_image", "subject": img_prompt},
+                            "result": {"success": True, "message": f"Saved locally: {img_path}"}
                         }
                     ],
                     "plan": None
@@ -182,8 +227,8 @@ def run_agent(user_request: str, attachments: list = None) -> dict:
                 {"role": "user", "content": full_query}
             ],
             options={
-                "temperature": 0.3,
-                "top_k": 30,
+                "temperature": 0.2,
+                "top_k": 25,
                 "top_p": 0.85
             }
         )
@@ -207,6 +252,6 @@ def run_agent(user_request: str, attachments: list = None) -> dict:
 
 
 if __name__ == "__main__":
-    print("Testing code query...")
-    res = run_agent("write a python function to check if a number is prime")
-    print(res["message"])
+    test_q = "make ms dhoni image"
+    is_img, p = is_image_generation_request(test_q)
+    print(f"Query: '{test_q}' -> is_img: {is_img}, prompt: '{p}'")

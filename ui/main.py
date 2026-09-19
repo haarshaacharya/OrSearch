@@ -1,5 +1,10 @@
 import sys
 import os
+
+# Suppress Qt DPI warning on Windows
+os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
+os.environ["QT_LOGGING_RULES"] = "qt.qpa.*=false"
+
 import html
 import re
 from datetime import datetime
@@ -14,6 +19,7 @@ from PySide6.QtGui import (
     QLinearGradient,
     QTextCursor,
     QKeySequence,
+    QIcon,
 )
 from PySide6.QtWidgets import (
     QApplication,
@@ -31,10 +37,13 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QInputDialog,
     QFileDialog,
+    QProgressBar,
     QSizePolicy,
 )
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ICONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons")
+
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
@@ -58,13 +67,13 @@ BG_MAIN = "#090B0E"
 BG_SIDEBAR = "#0C0F15"
 BG_CONTENT = "#090B0E"
 BG_PANEL = "#11151F"
-BG_CARD = "#141924"
+BG_CARD = "#131722"
 BG_CARD_HOVER = "#1B2232"
 BG_CARD_ACTIVE = "#15222E"
 
 BORDER_SUBTLE = "#1C2333"
-BORDER_CARD = "#232C3F"
-BORDER_HOVER = "#323F5A"
+BORDER_CARD = "#202838"
+BORDER_HOVER = "#2E3B52"
 BORDER_EMERALD = "#10B981"
 
 TEXT_PRIMARY = "#F8FAFC"
@@ -92,6 +101,11 @@ CYAN = "#06B6D4"
 # =========================================================
 # UTILITIES
 # =========================================================
+
+def get_icon_path(name: str) -> str:
+    path = os.path.join(ICONS_DIR, name)
+    return path if os.path.exists(path) else ""
+
 
 def format_file_size(num_bytes: int) -> str:
     size = float(num_bytes)
@@ -140,7 +154,7 @@ def render_markdown(text: str) -> str:
         lang_label = lang if lang else "CODE"
 
         block_html = f"""
-        <div style="margin: 10px 0; background: #080A0F; border: 1px solid #1E2738; border-radius: 8px; overflow: hidden; font-family: 'Consolas', 'Courier New', monospace;">
+        <div style="margin: 12px 0; background: #080A0F; border: 1px solid #1E2738; border-radius: 8px; overflow: hidden; font-family: 'Consolas', 'Courier New', monospace;">
             <div style="background: #111622; padding: 6px 14px; font-size: 11px; color: #8B98A5; border-bottom: 1px solid #1E2738; font-weight: 700; letter-spacing: 0.5px;">
                 ⚡ {lang_label}
             </div>
@@ -160,9 +174,13 @@ def render_markdown(text: str) -> str:
         alt = html.escape(match.group(1))
         url = match.group(2).strip()
         img_html = f"""
-        <div style="margin: 14px 0;">
-            <img src="{url}" alt="{alt}" style="max-width: 500px; max-height: 400px; border-radius: 10px; border: 1px solid #232C3F;" />
-            <div style="font-size: 11px; color: #64748B; margin-top: 5px;">{alt}</div>
+        <div style="margin: 16px 0; text-align: center;">
+            <div style="display: inline-block; background: #080B10; border: 1px solid #1E283A; border-radius: 12px; padding: 10px;">
+                <img src="{url}" alt="{alt}" style="max-width: 560px; max-height: 480px; border-radius: 8px;" />
+                <div style="font-size: 11px; color: #94A3B8; font-weight: 600; margin-top: 8px; text-align: center;">
+                    ✨ {alt}
+                </div>
+            </div>
         </div>
         """
         idx = len(code_blocks)
@@ -206,17 +224,17 @@ def render_markdown(text: str) -> str:
         if stripped.startswith("### "):
             header_text = stripped[4:]
             formatted_lines.append(
-                f'<div style="font-size: 15px; font-weight: 700; color: {EMERALD_MINT}; margin: 10px 0 4px 0;">{header_text}</div>'
+                f'<div style="font-size: 15px; font-weight: 700; color: {EMERALD_MINT}; margin: 12px 0 4px 0;">{header_text}</div>'
             )
         elif stripped.startswith("## "):
             header_text = stripped[3:]
             formatted_lines.append(
-                f'<div style="font-size: 17px; font-weight: 700; color: #FFFFFF; margin: 12px 0 6px 0;">{header_text}</div>'
+                f'<div style="font-size: 17px; font-weight: 700; color: #FFFFFF; margin: 14px 0 6px 0;">{header_text}</div>'
             )
         elif stripped.startswith("# "):
             header_text = stripped[2:]
             formatted_lines.append(
-                f'<div style="font-size: 20px; font-weight: 800; color: #FFFFFF; margin: 14px 0 8px 0; border-bottom: 1px solid #232C3F; padding-bottom: 4px;">{header_text}</div>'
+                f'<div style="font-size: 20px; font-weight: 800; color: #FFFFFF; margin: 16px 0 8px 0; border-bottom: 1px solid #232C3F; padding-bottom: 4px;">{header_text}</div>'
             )
         elif stripped.startswith("- ") or stripped.startswith("* "):
             item_text = stripped[2:]
@@ -237,7 +255,7 @@ def render_markdown(text: str) -> str:
             )
         else:
             if stripped:
-                formatted_lines.append(f'<div style="margin: 2px 0; line-height: 1.6;">{line}</div>')
+                formatted_lines.append(f'<div style="margin: 2px 0; line-height: 1.65;">{line}</div>')
             else:
                 formatted_lines.append('<div style="height: 6px;"></div>')
 
@@ -324,7 +342,7 @@ class AgentWorker(QThread):
 # =========================================================
 
 class OrsearchCore(QWidget):
-    def __init__(self, size=110, parent=None):
+    def __init__(self, size=100, parent=None):
         super().__init__(parent)
         self.size = size
         self.angle = 0
@@ -458,64 +476,62 @@ class ChatItem(QWidget):
         self.layout.addWidget(self.chat_button, 1)
 
         # Rename button
-        self.rename_button = QPushButton("✎")
+        self.rename_button = QPushButton()
         self.rename_button.setToolTip("Rename conversation")
         self.rename_button.setFixedSize(26, 28)
         self.rename_button.setCursor(Qt.PointingHandCursor)
+        edit_icon = get_icon_path("edit.svg")
+        if edit_icon:
+            self.rename_button.setIcon(QIcon(edit_icon))
+            self.rename_button.setIconSize(QSize(13, 13))
+        else:
+            self.rename_button.setText("✎")
 
         # Pin button
-        self.pin_button = QPushButton("📌" if pinned else "○")
+        self.pin_button = QPushButton()
         self.pin_button.setToolTip("Unpin" if pinned else "Pin to top")
         self.pin_button.setFixedSize(26, 28)
         self.pin_button.setCursor(Qt.PointingHandCursor)
+        pin_icon = get_icon_path("pin.svg")
+        if pin_icon:
+            self.pin_button.setIcon(QIcon(pin_icon))
+            self.pin_button.setIconSize(QSize(13, 13))
+        else:
+            self.pin_button.setText("📌" if pinned else "○")
 
         # Delete button
-        self.delete_button = QPushButton("✕")
+        self.delete_button = QPushButton()
         self.delete_button.setToolTip("Delete conversation")
         self.delete_button.setFixedSize(26, 28)
         self.delete_button.setCursor(Qt.PointingHandCursor)
+        trash_icon = get_icon_path("trash.svg")
+        if trash_icon:
+            self.delete_button.setIcon(QIcon(trash_icon))
+            self.delete_button.setIconSize(QSize(13, 13))
+        else:
+            self.delete_button.setText("✕")
 
         btn_style = f"""
             QPushButton {{
                 background: transparent;
-                color: {TEXT_SUBTLE};
                 border: none;
                 border-radius: 6px;
-                font-size: 12px;
                 padding: 0;
             }}
             QPushButton:hover {{
                 background: {BG_CARD_HOVER};
-                color: {TEXT_PRIMARY};
             }}
         """
         self.rename_button.setStyleSheet(btn_style)
+        self.pin_button.setStyleSheet(btn_style)
         self.delete_button.setStyleSheet(f"""
             QPushButton {{
                 background: transparent;
-                color: {TEXT_SUBTLE};
                 border: none;
                 border-radius: 6px;
-                font-size: 12px;
             }}
             QPushButton:hover {{
                 background: {RED_BG};
-                color: {RED};
-            }}
-        """)
-
-        pin_color = EMERALD_MINT if pinned else TEXT_SUBTLE
-        self.pin_button.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent;
-                color: {pin_color};
-                border: none;
-                border-radius: 6px;
-                font-size: 11px;
-            }}
-            QPushButton:hover {{
-                background: {BG_CARD_HOVER};
-                color: {EMERALD_MINT};
             }}
         """)
 
@@ -547,8 +563,8 @@ class ChatPromptInput(QTextEdit):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setPlaceholderText("Message Orsearch or ask for code... (Enter to send, Shift+Enter for new line)")
-        self.setFixedHeight(46)
+        self.setPlaceholderText("Message Orsearch, ask for code, or generate image... (Enter to send, Shift+Enter for new line)")
+        self.setFixedHeight(48)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.textChanged.connect(self.auto_adjust_height)
@@ -568,7 +584,7 @@ class ChatPromptInput(QTextEdit):
 
     def auto_adjust_height(self):
         doc_height = int(self.document().size().height())
-        new_height = max(46, min(140, doc_height + 12))
+        new_height = max(48, min(120, doc_height + 12))
         if self.height() != new_height:
             self.setFixedHeight(new_height)
 
@@ -592,7 +608,7 @@ class OrsearchWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Orsearch AI - Autonomous Desktop & Coding Agent")
-        self.resize(1260, 820)
+        self.resize(1280, 840)
         self.setMinimumSize(980, 660)
 
         # Enable Drag & Drop
@@ -606,10 +622,13 @@ class OrsearchWindow(QMainWindow):
         self.search_filter_text = ""
         self.pending_attachments = []
 
-        # Thinking animation timer
-        self.thinking_dots_count = 0
-        self.thinking_timer = QTimer(self)
-        self.thinking_timer.timeout.connect(self.animate_thinking)
+        # Progress Animation
+        self.current_progress_val = 0
+        self.target_progress_val = 0
+        self.is_image_mode = False
+
+        self.progress_timer = QTimer(self)
+        self.progress_timer.timeout.connect(self.tick_progress)
 
         self.build_ui()
         self.new_chat()
@@ -674,16 +693,16 @@ class OrsearchWindow(QMainWindow):
         # =================================================
         # 1. SIDEBAR
         # =================================================
-        sidebar = QFrame()
-        sidebar.setFixedWidth(295)
-        sidebar.setStyleSheet(f"""
+        self.sidebar = QFrame()
+        self.sidebar.setFixedWidth(280)
+        self.sidebar.setStyleSheet(f"""
             QFrame {{
                 background: {BG_SIDEBAR};
                 border-right: 1px solid {BORDER_SUBTLE};
             }}
         """)
 
-        sidebar_layout = QVBoxLayout(sidebar)
+        sidebar_layout = QVBoxLayout(self.sidebar)
         sidebar_layout.setContentsMargins(16, 18, 16, 16)
         sidebar_layout.setSpacing(12)
 
@@ -749,15 +768,19 @@ class OrsearchWindow(QMainWindow):
 
         # Search / Filter Bar
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("🔍 Search conversations...")
+        self.search_input.setPlaceholderText("Search conversations...")
         self.search_input.setFixedHeight(34)
+        search_icon = get_icon_path("search.svg")
+        if search_icon:
+            self.search_input.addAction(QIcon(search_icon), QLineEdit.LeadingPosition)
+
         self.search_input.setStyleSheet(f"""
             QLineEdit {{
                 background: #0F131C;
                 color: {TEXT_SECONDARY};
                 border: 1px solid {BORDER_SUBTLE};
                 border-radius: 8px;
-                padding: 0 12px;
+                padding: 0 10px;
                 font-size: 12px;
             }}
             QLineEdit:focus {{
@@ -824,37 +847,65 @@ class OrsearchWindow(QMainWindow):
         """)
 
         content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(32, 20, 32, 22)
+        content_layout.setContentsMargins(36, 16, 36, 20)
         content_layout.setSpacing(12)
 
         # Header Bar
         header = QHBoxLayout()
-        header.setSpacing(12)
+        header.setSpacing(10)
+
+        self.sidebar_toggle_btn = QPushButton()
+        self.sidebar_toggle_btn.setToolTip("Toggle Sidebar")
+        self.sidebar_toggle_btn.setFixedSize(32, 32)
+        self.sidebar_toggle_btn.setCursor(Qt.PointingHandCursor)
+        sidebar_svg = get_icon_path("sidebar.svg")
+        if sidebar_svg:
+            self.sidebar_toggle_btn.setIcon(QIcon(sidebar_svg))
+            self.sidebar_toggle_btn.setIconSize(QSize(16, 16))
+        else:
+            self.sidebar_toggle_btn.setText("◧")
+
+        self.sidebar_toggle_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {BG_CARD};
+                border: 1px solid {BORDER_CARD};
+                border-radius: 8px;
+            }}
+            QPushButton:hover {{
+                background: {BG_CARD_HOVER};
+                border: 1px solid {EMERALD};
+            }}
+        """)
+        self.sidebar_toggle_btn.clicked.connect(self.toggle_sidebar)
 
         self.page_title = QLabel("New Conversation")
         self.page_title.setStyleSheet(f"""
             QLabel {{
                 color: {TEXT_PRIMARY};
-                font-size: 18px;
+                font-size: 17px;
                 font-weight: 700;
             }}
         """)
 
-        self.rename_current_btn = QPushButton("✎")
+        self.rename_current_btn = QPushButton()
         self.rename_current_btn.setToolTip("Rename current conversation")
-        self.rename_current_btn.setFixedSize(26, 26)
+        self.rename_current_btn.setFixedSize(28, 28)
         self.rename_current_btn.setCursor(Qt.PointingHandCursor)
+        edit_svg = get_icon_path("edit.svg")
+        if edit_svg:
+            self.rename_current_btn.setIcon(QIcon(edit_svg))
+            self.rename_current_btn.setIconSize(QSize(13, 13))
+        else:
+            self.rename_current_btn.setText("✎")
+
         self.rename_current_btn.setStyleSheet(f"""
             QPushButton {{
                 background: transparent;
-                color: {TEXT_SUBTLE};
                 border: none;
                 border-radius: 6px;
-                font-size: 12px;
             }}
             QPushButton:hover {{
                 background: {BG_CARD};
-                color: {TEXT_PRIMARY};
             }}
         """)
         self.rename_current_btn.clicked.connect(lambda: self.rename_chat(self.current_chat))
@@ -873,17 +924,22 @@ class OrsearchWindow(QMainWindow):
             }}
         """)
 
-        self.clear_chat_btn = QPushButton("🗑️ Clear")
+        self.clear_chat_btn = QPushButton("Clear")
         self.clear_chat_btn.setToolTip("Clear messages in current chat")
-        self.clear_chat_btn.setFixedHeight(28)
+        self.clear_chat_btn.setFixedHeight(30)
         self.clear_chat_btn.setCursor(Qt.PointingHandCursor)
+        trash_svg = get_icon_path("trash.svg")
+        if trash_svg:
+            self.clear_chat_btn.setIcon(QIcon(trash_svg))
+            self.clear_chat_btn.setIconSize(QSize(13, 13))
+
         self.clear_chat_btn.setStyleSheet(f"""
             QPushButton {{
                 background: {BG_CARD};
                 color: {TEXT_MUTED};
                 border: 1px solid {BORDER_CARD};
-                border-radius: 6px;
-                padding: 0 10px;
+                border-radius: 7px;
+                padding: 0 12px;
                 font-size: 11px;
                 font-weight: 600;
             }}
@@ -894,6 +950,7 @@ class OrsearchWindow(QMainWindow):
         """)
         self.clear_chat_btn.clicked.connect(self.clear_current_chat_messages)
 
+        header.addWidget(self.sidebar_toggle_btn)
         header.addWidget(self.page_title)
         header.addWidget(self.rename_current_btn)
         header.addWidget(self.status_label)
@@ -907,8 +964,9 @@ class OrsearchWindow(QMainWindow):
         welcome_layout = QVBoxLayout(self.welcome)
         welcome_layout.setAlignment(Qt.AlignCenter)
         welcome_layout.setSpacing(14)
+        welcome_layout.addStretch(1)
 
-        core_hero = OrsearchCore(105)
+        core_hero = OrsearchCore(96)
 
         welcome_title = QLabel("What can I create or automate for you?")
         welcome_title.setAlignment(Qt.AlignCenter)
@@ -923,13 +981,13 @@ class OrsearchWindow(QMainWindow):
         """)
 
         welcome_subtitle = QLabel(
-            "Upload files, videos, & music • Generate AI images • Write and debug code • Automate desktop apps"
+            "Instant AI Image Generation • Fast Python & Web Coding • Desktop Automation • File & Video Analysis"
         )
         welcome_subtitle.setAlignment(Qt.AlignCenter)
         welcome_subtitle.setStyleSheet(f"""
             QLabel {{
                 color: {TEXT_MUTED};
-                font-size: 14px;
+                font-size: 13px;
                 margin-bottom: 8px;
             }}
         """)
@@ -941,45 +999,52 @@ class OrsearchWindow(QMainWindow):
         # 4 Interactive Hero Prompt Cards (2x2 Grid)
         cards_grid = QGridLayout()
         cards_grid.setSpacing(12)
-        cards_grid.setContentsMargins(40, 10, 40, 10)
+        cards_grid.setContentsMargins(20, 10, 20, 10)
 
         self.add_hero_card(
             cards_grid,
             0,
             0,
-            "🎨 Generate AI Image",
-            "Generate futuristic cyberpunk city art",
-            "Generate image of a futuristic cyberpunk city with neon reflections",
+            "sparkles.svg",
+            "Generate AI Image",
+            "Create high-res realistic portraits & art",
+            "make ms dhoni image",
         )
         self.add_hero_card(
             cards_grid,
             0,
             1,
-            "⚡ Python Coding Solution",
-            "Write a multi-threaded fast web scraper",
-            "Write a complete Python script to fetch and parse web content with error handling",
+            "code.svg",
+            "Python Coding Solution",
+            "Write snake game with score & highscore",
+            "write complete python code for a snake game",
         )
         self.add_hero_card(
             cards_grid,
             1,
             0,
-            "💻 Launch Chrome",
-            "Open Chrome browser and navigate",
-            "Open Chrome",
+            "globe.svg",
+            "Web Intelligence",
+            "Launch Chrome and search latest tech news",
+            "Open Chrome and search for latest AI news 2026",
         )
         self.add_hero_card(
             cards_grid,
             1,
             1,
-            "📎 Upload & Vision",
+            "camera.svg",
+            "Screen Vision & Files",
             "Attach photos, videos, or scripts to analyze",
             "Describe the uploaded file and analyze key elements",
         )
 
         welcome_layout.addLayout(cards_grid)
-        content_layout.addWidget(self.welcome)
+        welcome_layout.addStretch(2)
 
-        # Chat View (QTextEdit)
+        # Welcome has stretch 1 so it centers in available space
+        content_layout.addWidget(self.welcome, 1)
+
+        # Chat View (QTextEdit) has stretch 1 when visible
         self.chat_view = QTextEdit()
         self.chat_view.setReadOnly(True)
         self.chat_view.setStyleSheet(f"""
@@ -987,53 +1052,89 @@ class OrsearchWindow(QMainWindow):
                 background: transparent;
                 color: {TEXT_SECONDARY};
                 border: none;
-                padding: 4px 6px;
+                padding: 6px 12px;
                 font-size: 14px;
             }}
         """)
         content_layout.addWidget(self.chat_view, 1)
 
-        # Animated Thinking Indicator Bar (Appears when waiting for agent)
-        self.thinking_bar = QFrame()
-        self.thinking_bar.setStyleSheet(f"""
+        # Live Progress & Percentage Indicator Box
+        self.progress_box = QFrame()
+        self.progress_box.setStyleSheet(f"""
             QFrame {{
-                background: #0B1914;
-                border: 1px solid {EMERALD_BORDER};
-                border-radius: 9px;
-                padding: 8px 14px;
+                background: #0D131D;
+                border: 1px solid #1E2B3E;
+                border-radius: 10px;
+                padding: 10px 14px;
             }}
         """)
-        thinking_layout = QHBoxLayout(self.thinking_bar)
-        thinking_layout.setContentsMargins(6, 4, 6, 4)
+        progress_box_layout = QVBoxLayout(self.progress_box)
+        progress_box_layout.setContentsMargins(8, 6, 8, 6)
+        progress_box_layout.setSpacing(6)
 
-        self.thinking_label = QLabel("⚡ Orsearch is analyzing and processing...")
-        self.thinking_label.setStyleSheet(f"""
+        progress_top_row = QHBoxLayout()
+        self.progress_stage_lbl = QLabel("⚡ Processing request...")
+        self.progress_stage_lbl.setStyleSheet(f"""
             QLabel {{
                 color: {EMERALD_MINT};
                 font-size: 12px;
-                font-weight: 600;
+                font-weight: 700;
             }}
         """)
-        thinking_layout.addWidget(self.thinking_label)
-        thinking_layout.addStretch()
 
-        self.thinking_bar.hide()
-        content_layout.addWidget(self.thinking_bar)
+        self.progress_percent_lbl = QLabel("0%")
+        self.progress_percent_lbl.setStyleSheet(f"""
+            QLabel {{
+                color: #FFFFFF;
+                background: #14281E;
+                border: 1px solid {EMERALD_BORDER};
+                border-radius: 5px;
+                font-size: 11px;
+                font-weight: 800;
+                padding: 2px 7px;
+            }}
+        """)
+        progress_top_row.addWidget(self.progress_stage_lbl)
+        progress_top_row.addStretch()
+        progress_top_row.addWidget(self.progress_percent_lbl)
+        progress_box_layout.addLayout(progress_top_row)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setFixedHeight(7)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setStyleSheet(f"""
+            QProgressBar {{
+                background: #080C12;
+                border: 1px solid #192333;
+                border-radius: 3px;
+            }}
+            QProgressBar::chunk {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {EMERALD}, stop:1 {EMERALD_MINT});
+                border-radius: 2px;
+            }}
+        """)
+        progress_box_layout.addWidget(self.progress_bar)
+
+        self.progress_box.hide()
+        content_layout.addWidget(self.progress_box, 0)
 
         # Quick Action Prompt Pills Bar
         quick_layout = QHBoxLayout()
         quick_layout.setSpacing(8)
 
-        self.add_quick_pill(quick_layout, "🎨 Generate Image", "Generate image of a ")
-        self.add_quick_pill(quick_layout, "💻 Write Code", "Write python code to ")
-        self.add_quick_pill(quick_layout, "🌐 Search Google", "Search Google for ")
-        self.add_quick_pill(quick_layout, "📸 Take Screenshot", "Take a screenshot")
+        self.add_quick_pill(quick_layout, "sparkles.svg", "Generate Image", "make image of ")
+        self.add_quick_pill(quick_layout, "code.svg", "Write Code", "write python code to ")
+        self.add_quick_pill(quick_layout, "globe.svg", "Search Google", "Search Google for ")
+        self.add_quick_pill(quick_layout, "camera.svg", "Take Screenshot", "Take a screenshot")
         quick_layout.addStretch()
 
         content_layout.addLayout(quick_layout)
 
-        # Premium Expanding Input Box Container
+        # Premium Compact Input Box Container (Height constrained!)
         input_container = QFrame()
+        input_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
         input_container.setStyleSheet(f"""
             QFrame {{
                 background: {BG_CARD};
@@ -1045,7 +1146,7 @@ class OrsearchWindow(QMainWindow):
             }}
         """)
         input_container_layout = QVBoxLayout(input_container)
-        input_container_layout.setContentsMargins(12, 10, 12, 10)
+        input_container_layout.setContentsMargins(12, 8, 12, 10)
         input_container_layout.setSpacing(6)
 
         # Attachments Preview Box (Chips for uploaded images/videos/files)
@@ -1058,7 +1159,7 @@ class OrsearchWindow(QMainWindow):
         self.attachments_box.hide()
         input_container_layout.addWidget(self.attachments_box)
 
-        # Text input field
+        # Text input field (starts at 48px compact)
         self.prompt_input = ChatPromptInput()
         self.prompt_input.send_requested.connect(self.trigger_send)
         input_container_layout.addWidget(self.prompt_input)
@@ -1067,23 +1168,27 @@ class OrsearchWindow(QMainWindow):
         bottom_input_bar = QHBoxLayout()
         bottom_input_bar.setSpacing(10)
 
-        # Attach Button (📎)
-        self.attach_button = QPushButton("📎")
+        # Attach Button (📎 with real SVG)
+        self.attach_button = QPushButton()
         self.attach_button.setToolTip("Upload Files, Images, MP4 Videos, Music, or Code")
         self.attach_button.setFixedSize(36, 36)
         self.attach_button.setCursor(Qt.PointingHandCursor)
+        paperclip_svg = get_icon_path("paperclip.svg")
+        if paperclip_svg:
+            self.attach_button.setIcon(QIcon(paperclip_svg))
+            self.attach_button.setIconSize(QSize(18, 18))
+        else:
+            self.attach_button.setText("📎")
+
         self.attach_button.setStyleSheet(f"""
             QPushButton {{
-                background: #19202E;
-                color: {TEXT_PRIMARY};
+                background: #18202E;
                 border: 1px solid {BORDER_CARD};
                 border-radius: 9px;
-                font-size: 16px;
             }}
             QPushButton:hover {{
                 background: {BG_CARD_HOVER};
                 border: 1px solid {EMERALD};
-                color: {EMERALD_MINT};
             }}
         """)
         self.attach_button.clicked.connect(self.choose_files_to_attach)
@@ -1101,7 +1206,7 @@ class OrsearchWindow(QMainWindow):
             }}
         """)
 
-        shortcut_hint = QLabel("Enter ↵ to send • Shift+Enter for newline • Drag & Drop files supported")
+        shortcut_hint = QLabel("Enter ↵ to send • Shift+Enter for newline • Drag & Drop supported")
         shortcut_hint.setStyleSheet(f"""
             QLabel {{
                 color: {TEXT_SUBTLE};
@@ -1109,17 +1214,21 @@ class OrsearchWindow(QMainWindow):
             }}
         """)
 
-        self.send_button = QPushButton("➤")
+        self.send_button = QPushButton()
         self.send_button.setFixedSize(40, 36)
         self.send_button.setCursor(Qt.PointingHandCursor)
+        send_svg = get_icon_path("send.svg")
+        if send_svg:
+            self.send_button.setIcon(QIcon(send_svg))
+            self.send_button.setIconSize(QSize(18, 18))
+        else:
+            self.send_button.setText("➤")
+
         self.send_button.setStyleSheet(f"""
             QPushButton {{
                 background: {EMERALD};
-                color: #022013;
                 border: none;
                 border-radius: 9px;
-                font-size: 16px;
-                font-weight: 800;
             }}
             QPushButton:hover {{
                 background: {EMERALD_MINT};
@@ -1129,7 +1238,6 @@ class OrsearchWindow(QMainWindow):
             }}
             QPushButton:disabled {{
                 background: #1B2433;
-                color: #4B5565;
             }}
         """)
         self.send_button.clicked.connect(self.trigger_send)
@@ -1141,12 +1249,23 @@ class OrsearchWindow(QMainWindow):
         bottom_input_bar.addWidget(self.send_button)
 
         input_container_layout.addLayout(bottom_input_bar)
-        content_layout.addWidget(input_container)
+        content_layout.addWidget(input_container, 0)
 
-        main_layout.addWidget(sidebar)
-        main_layout.addWidget(content)
+        # Assemble Main Layout
+        main_layout.addWidget(self.sidebar, 0)
+        main_layout.addWidget(content, 1)
 
         self.set_status("READY")
+
+    # =====================================================
+    # SIDEBAR TOGGLE
+    # =====================================================
+
+    def toggle_sidebar(self):
+        if self.sidebar.isVisible():
+            self.sidebar.hide()
+        else:
+            self.sidebar.show()
 
     # =====================================================
     # FILE ATTACHMENT SYSTEM
@@ -1184,7 +1303,6 @@ class OrsearchWindow(QMainWindow):
             self.refresh_attachments_preview()
 
     def refresh_attachments_preview(self):
-        # Clear preview layout
         while self.attachments_layout.count():
             item = self.attachments_layout.takeAt(0)
             w = item.widget()
@@ -1252,14 +1370,33 @@ class OrsearchWindow(QMainWindow):
     # HERO PROMPT CARDS (WELCOME SCREEN)
     # =====================================================
 
-    def add_hero_card(self, grid, row, col, title, subtitle, command):
+    def add_hero_card(self, grid, row, col, icon_name, title, subtitle, command):
         card = QPushButton()
         card.setCursor(Qt.PointingHandCursor)
-        card.setFixedHeight(72)
+        card.setFixedHeight(76)
 
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(16, 12, 16, 12)
-        card_layout.setSpacing(3)
+        card_layout = QHBoxLayout(card)
+        card_layout.setContentsMargins(14, 12, 14, 12)
+        card_layout.setSpacing(12)
+
+        # Icon box
+        icon_box = QLabel()
+        icon_box.setFixedSize(40, 40)
+        icon_box.setAlignment(Qt.AlignCenter)
+        icon_box.setStyleSheet(f"""
+            QLabel {{
+                background: #151C28;
+                border: 1px solid #233045;
+                border-radius: 9px;
+            }}
+        """)
+        svg_p = get_icon_path(icon_name)
+        if svg_p:
+            icon_box.setPixmap(QIcon(svg_p).pixmap(20, 20))
+
+        # Text layout
+        text_layout = QVBoxLayout()
+        text_layout.setSpacing(2)
 
         title_lbl = QLabel(title)
         title_lbl.setStyleSheet(f"""
@@ -1280,12 +1417,16 @@ class OrsearchWindow(QMainWindow):
             }}
         """)
 
-        card_layout.addWidget(title_lbl)
-        card_layout.addWidget(sub_lbl)
+        text_layout.addWidget(title_lbl)
+        text_layout.addWidget(sub_lbl)
+
+        card_layout.addWidget(icon_box)
+        card_layout.addLayout(text_layout)
+        card_layout.addStretch()
 
         card.setStyleSheet(f"""
             QPushButton {{
-                background: {BG_PANEL};
+                background: {BG_CARD};
                 border: 1px solid {BORDER_CARD};
                 border-radius: 12px;
                 text-align: left;
@@ -1303,13 +1444,18 @@ class OrsearchWindow(QMainWindow):
     # QUICK ACTION PILL
     # =====================================================
 
-    def add_quick_pill(self, layout, title, command):
+    def add_quick_pill(self, layout, icon_name, title, command):
         button = QPushButton(title)
         button.setFixedHeight(28)
         button.setCursor(Qt.PointingHandCursor)
+        svg_p = get_icon_path(icon_name)
+        if svg_p:
+            button.setIcon(QIcon(svg_p))
+            button.setIconSize(QSize(13, 13))
+
         button.setStyleSheet(f"""
             QPushButton {{
-                background: {BG_PANEL};
+                background: #101520;
                 color: {TEXT_MUTED};
                 border: 1px solid {BORDER_SUBTLE};
                 border-radius: 7px;
@@ -1540,7 +1686,7 @@ class OrsearchWindow(QMainWindow):
                 attach_html_list.append(
                     f"""
                     <div style="margin: 6px 0;">
-                        <img src="file:///{norm_path}" alt="{fname}" style="max-width: 260px; max-height: 180px; border-radius: 8px; border: 1px solid #28374E;" />
+                        <img src="file:///{norm_path}" alt="{fname}" style="max-width: 280px; max-height: 200px; border-radius: 8px; border: 1px solid #28374E;" />
                         <div style="font-size: 10px; color: #64748B; margin-top: 2px;">{fname}</div>
                     </div>
                     """
@@ -1559,16 +1705,21 @@ class OrsearchWindow(QMainWindow):
         if role == "user":
             formatted_text = render_markdown(text)
             content = f"""
-            <div style="margin: 14px 10px 14px 40px; padding: 14px 18px; background: #131A26; border: 1px solid #222E42; border-radius: 14px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                    <span style="color: #38BDF8; font-size: 11px; font-weight: 700; letter-spacing: 0.5px;">👤 YOU</span>
-                    <span style="color: {TEXT_SUBTLE}; font-size: 10px; margin-left: 10px;">{timestamp}</span>
-                </div>
-                {attachments_html}
-                <div style="color: {TEXT_PRIMARY}; font-size: 14px; line-height: 1.6;">
-                    {formatted_text}
-                </div>
-            </div>
+            <table width="100%" border="0" cellpadding="0" cellspacing="0" style="margin: 8px 0 14px 0;">
+                <tr>
+                    <td align="right">
+                        <div style="background: #151F30; border: 1px solid #263852; border-radius: 16px 16px 4px 16px; padding: 13px 18px; max-width: 680px; text-align: left;">
+                            <div style="font-size: 11px; font-weight: 700; color: #38BDF8; margin-bottom: 5px;">
+                                👤 YOU <span style="color: #64748B; font-size: 10px; font-weight: 400; margin-left: 8px;">{timestamp}</span>
+                            </div>
+                            {attachments_html}
+                            <div style="color: #F8FAFC; font-size: 14px; line-height: 1.6;">
+                                {formatted_text}
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+            </table>
             """
         elif role == "system":
             safe_text = html.escape(text)
@@ -1582,17 +1733,23 @@ class OrsearchWindow(QMainWindow):
             actions_html = render_actions_summary(actions) if actions else ""
 
             content = f"""
-            <div style="margin: 14px 40px 14px 10px; padding: 16px 20px; background: {BG_PANEL}; border: 1px solid {BORDER_CARD}; border-left: 3px solid {EMERALD}; border-radius: 14px;">
-                <div style="display: flex; align-items: center; margin-bottom: 8px;">
-                    <span style="color: {EMERALD_MINT}; font-size: 11px; font-weight: 800; letter-spacing: 0.6px;">⚡ ORSEARCH AI</span>
-                    <span style="background: {EMERALD_BG}; color: {EMERALD_MINT}; border: 1px solid {EMERALD_BORDER}; border-radius: 4px; font-size: 9px; font-weight: 700; padding: 1px 5px; margin-left: 8px;">PRO AGENT</span>
-                    <span style="color: {TEXT_SUBTLE}; font-size: 10px; margin-left: 10px;">{timestamp}</span>
-                </div>
-                {actions_html}
-                <div style="color: #E2E8F0; font-size: 14px; line-height: 1.6;">
-                    {formatted_text}
-                </div>
-            </div>
+            <table width="100%" border="0" cellpadding="0" cellspacing="0" style="margin: 10px 0 18px 0;">
+                <tr>
+                    <td align="left">
+                        <div style="background: #0E121B; border: 1px solid #1C2332; border-left: 3px solid {EMERALD}; border-radius: 4px 16px 16px 16px; padding: 16px 20px; max-width: 860px; text-align: left;">
+                            <div style="margin-bottom: 8px;">
+                                <span style="color: {EMERALD_MINT}; font-size: 11px; font-weight: 800; letter-spacing: 0.6px;">⚡ ORSEARCH AI</span>
+                                <span style="background: {EMERALD_BG}; color: {EMERALD_MINT}; border: 1px solid {EMERALD_BORDER}; border-radius: 4px; font-size: 9px; font-weight: 700; padding: 1px 5px; margin-left: 8px;">PRO AGENT</span>
+                                <span style="color: {TEXT_SUBTLE}; font-size: 10px; margin-left: 8px;">{timestamp}</span>
+                            </div>
+                            {actions_html}
+                            <div style="color: #E2E8F0; font-size: 14px; line-height: 1.65;">
+                                {formatted_text}
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+            </table>
             """
 
         self.chat_view.moveCursor(QTextCursor.End)
@@ -1618,7 +1775,7 @@ class OrsearchWindow(QMainWindow):
 
         self.send_message(text, attachments)
         self.prompt_input.clear()
-        self.prompt_input.setFixedHeight(46)
+        self.prompt_input.setFixedHeight(48)
 
     def send_message(self, text, attachments=None):
         if not text and not attachments:
@@ -1653,17 +1810,29 @@ class OrsearchWindow(QMainWindow):
             self.page_title.setText(new_title)
             self.rebuild_chat_list()
 
+        # Check if this query is an image generation request
+        lower_t = text.lower()
+        self.is_image_mode = any(w in lower_t for w in ["image", "photo", "picture", "pic", "draw", "tasveer", "banao"])
+
         # Update UI state to thinking
         self.set_status("THINKING")
         self.send_button.setDisabled(True)
         self.prompt_input.setDisabled(True)
         self.attach_button.setDisabled(True)
 
-        # Start thinking animation
-        self.thinking_dots_count = 0
-        self.thinking_label.setText("⚡ Orsearch is thinking & preparing response...")
-        self.thinking_bar.show()
-        self.thinking_timer.start(350)
+        # Start dynamic progress bar with live percentage
+        self.current_progress_val = 5
+        self.target_progress_val = 88 if self.is_image_mode else 80
+        self.progress_bar.setValue(self.current_progress_val)
+        self.progress_percent_lbl.setText(f"{self.current_progress_val}%")
+
+        if self.is_image_mode:
+            self.progress_stage_lbl.setText("🎨 Initializing FLUX AI Diffusion Model...")
+        else:
+            self.progress_stage_lbl.setText("⚡ Analyzing request & preparing response...")
+
+        self.progress_box.show()
+        self.progress_timer.start(160)
 
         # Spawn Agent Worker with attachments
         self.worker = AgentWorker(text, attachments)
@@ -1671,18 +1840,42 @@ class OrsearchWindow(QMainWindow):
         self.worker.failed.connect(self.agent_failed)
         self.worker.start()
 
-    def animate_thinking(self):
-        self.thinking_dots_count = (self.thinking_dots_count + 1) % 4
-        dots = "." * self.thinking_dots_count
-        self.thinking_label.setText(f"⚡ Orsearch is generating response{dots}")
+    def tick_progress(self):
+        if self.current_progress_val < self.target_progress_val:
+            step = 3 if self.is_image_mode else 4
+            self.current_progress_val = min(self.target_progress_val, self.current_progress_val + step)
+            self.progress_bar.setValue(self.current_progress_val)
+            self.progress_percent_lbl.setText(f"{self.current_progress_val}%")
+
+            val = self.current_progress_val
+            if self.is_image_mode:
+                if val < 25:
+                    self.progress_stage_lbl.setText("🎨 Initializing FLUX AI Diffusion Model...")
+                elif val < 55:
+                    self.progress_stage_lbl.setText("✨ Synthesizing authentic likeness & composition...")
+                elif val < 80:
+                    self.progress_stage_lbl.setText("🌟 Rendering 8K photorealistic details & lighting...")
+                else:
+                    self.progress_stage_lbl.setText("📥 Finalizing image & saving to disk...")
+            else:
+                if val < 35:
+                    self.progress_stage_lbl.setText("⚡ Analyzing prompt & planning solution...")
+                elif val < 70:
+                    self.progress_stage_lbl.setText("💻 Synthesizing code & running inference...")
+                else:
+                    self.progress_stage_lbl.setText("✨ Finalizing formatted response...")
 
     # =====================================================
     # AGENT RESPONSE HANDLERS
     # =====================================================
 
     def agent_finished(self, result):
-        self.thinking_timer.stop()
-        self.thinking_bar.hide()
+        self.progress_timer.stop()
+        self.progress_bar.setValue(100)
+        self.progress_percent_lbl.setText("100%")
+        self.progress_stage_lbl.setText("✅ Complete! (100%)")
+
+        QTimer.singleShot(450, self.progress_box.hide)
 
         actions_list = []
         if isinstance(result, dict):
@@ -1723,8 +1916,8 @@ class OrsearchWindow(QMainWindow):
         self.worker = None
 
     def agent_failed(self, error):
-        self.thinking_timer.stop()
-        self.thinking_bar.hide()
+        self.progress_timer.stop()
+        self.progress_box.hide()
         self.set_status("ERROR")
 
         time_now = datetime.now().strftime("%H:%M")
