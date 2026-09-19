@@ -29,7 +29,7 @@ Rules:
 - Never return Python code.
 - Never return shell commands.
 - Never invent mouse coordinates.
-- For open_app, use:
+- For open_app use:
   {"type":"open_app","parameter":"chrome"}
 - For URLs use:
   {"type":"open_url","parameter":"https://example.com"}
@@ -46,7 +46,7 @@ Rules:
 - For screen understanding use:
   {"type":"analyze_screen"}
 
-Return this structure:
+Return exactly:
 
 {
   "actions": [
@@ -62,8 +62,18 @@ Return this structure:
 def extract_json(text):
     text = text.strip()
 
-    text = re.sub(r"```json\s*", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"```\s*", "", text)
+    text = re.sub(
+        r"```json\s*",
+        "",
+        text,
+        flags=re.IGNORECASE
+    )
+
+    text = re.sub(
+        r"```\s*",
+        "",
+        text
+    )
 
     start = text.find("{")
     end = text.rfind("}")
@@ -94,11 +104,13 @@ def create_plan(user_request):
     plan = extract_json(content)
 
     if not isinstance(plan, dict):
-        raise ValueError("Planner returned invalid plan.")
+        raise ValueError("Planner returned invalid data.")
 
     actions = plan.get("actions")
 
     if not isinstance(actions, list):
-        raise ValueError("Planner response does not contain an actions list.")
+        raise ValueError(
+            "Planner response does not contain an actions list."
+        )
 
     return plan

@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QMessageBox,
     QInputDialog,
+    QFileDialog,
     QSizePolicy,
 )
 
@@ -37,7 +38,16 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-from agent import run_agent
+try:
+    from backend.agent import run_agent
+except ImportError:
+    try:
+        from agent import run_agent
+    except ImportError:
+        backend_path = os.path.join(ROOT_DIR, "backend")
+        if backend_path not in sys.path:
+            sys.path.insert(0, backend_path)
+        from agent import run_agent
 
 
 # =========================================================
@@ -80,6 +90,34 @@ CYAN = "#06B6D4"
 
 
 # =========================================================
+# UTILITIES
+# =========================================================
+
+def format_file_size(num_bytes: int) -> str:
+    size = float(num_bytes)
+    for unit in ["B", "KB", "MB", "GB"]:
+        if size < 1024.0:
+            return f"{size:.1f} {unit}"
+        size /= 1024.0
+    return f"{size:.1f} TB"
+
+
+def get_file_icon(file_path: str) -> str:
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext in [".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"]:
+        return "🖼️"
+    elif ext in [".mp4", ".avi", ".mov", ".mkv"]:
+        return "🎬"
+    elif ext in [".mp3", ".wav", ".m4a", ".ogg", ".flac"]:
+        return "🎵"
+    elif ext in [".py", ".js", ".html", ".css", ".json", ".cpp", ".java", ".c", ".ts"]:
+        return "💻"
+    elif ext in [".txt", ".md", ".csv", ".pdf", ".doc", ".docx"]:
+        return "📄"
+    return "📎"
+
+
+# =========================================================
 # MARKDOWN & RICH FORMATTING ENGINE
 # =========================================================
 
@@ -87,7 +125,7 @@ def render_markdown(text: str) -> str:
     """
     Zero-dependency Markdown to HTML parser tailored for PySide6 QTextEdit.
     Supports code blocks, inline code, bold, italic, headers, bullet lists,
-    numbered lists, blockquotes, and paragraph line breaks.
+    numbered lists, blockquotes, images, and paragraph line breaks.
     """
     if not text:
         return ""
@@ -103,7 +141,7 @@ def render_markdown(text: str) -> str:
 
         block_html = f"""
         <div style="margin: 10px 0; background: #080A0F; border: 1px solid #1E2738; border-radius: 8px; overflow: hidden; font-family: 'Consolas', 'Courier New', monospace;">
-            <div style="background: #111622; padding: 5px 12px; font-size: 11px; color: #8B98A5; border-bottom: 1px solid #1E2738; font-weight: 700; letter-spacing: 0.5px;">
+            <div style="background: #111622; padding: 6px 14px; font-size: 11px; color: #8B98A5; border-bottom: 1px solid #1E2738; font-weight: 700; letter-spacing: 0.5px;">
                 ⚡ {lang_label}
             </div>
             <div style="padding: 12px 14px; font-size: 13px; color: #E2E8F0; white-space: pre-wrap; line-height: 1.5;">{escaped_code}</div>
@@ -117,31 +155,48 @@ def render_markdown(text: str) -> str:
     pattern_code = r"```([a-zA-Z0-9_\-\+]*)\n?(.*?)```"
     text = re.sub(pattern_code, replace_code_block, text, flags=re.DOTALL)
 
-    # 2. Escape standard HTML in the remaining text
+    # 2. Extract and format markdown images: ![alt](url)
+    def replace_image(match):
+        alt = html.escape(match.group(1))
+        url = match.group(2).strip()
+        img_html = f"""
+        <div style="margin: 14px 0;">
+            <img src="{url}" alt="{alt}" style="max-width: 500px; max-height: 400px; border-radius: 10px; border: 1px solid #232C3F;" />
+            <div style="font-size: 11px; color: #64748B; margin-top: 5px;">{alt}</div>
+        </div>
+        """
+        idx = len(code_blocks)
+        code_blocks.append(img_html)
+        return f"__CODE_BLOCK_{idx}__"
+
+    pattern_img = r"!\[([^\]]*)\]\(([^)]+)\)"
+    text = re.sub(pattern_img, replace_image, text)
+
+    # 3. Escape standard HTML in the remaining text
     text = html.escape(text)
 
-    # 3. Inline code `text`
+    # 4. Inline code `text`
     text = re.sub(
         r"`([^`\n]+)`",
         r'<code style="background: #19202E; color: #34D399; padding: 2px 6px; border-radius: 4px; font-family: Consolas, monospace; font-size: 12px; border: 1px solid #28354A;">\1</code>',
         text,
     )
 
-    # 4. Bold **text**
+    # 5. Bold **text**
     text = re.sub(
         r"\*\*([^\*\n]+)\*\*",
         r'<strong style="color: #FFFFFF; font-weight: 700;">\1</strong>',
         text,
     )
 
-    # 5. Italic *text*
+    # 6. Italic *text*
     text = re.sub(
         r"(?<!\*)\*([^\*\n]+)\*(?!\*)",
         r'<em style="color: #CBD5E1;">\1</em>',
         text,
     )
 
-    # 6. Line by line processing for headers, lists, and quotes
+    # 7. Line by line processing for headers, lists, and quotes
     lines = text.split("\n")
     formatted_lines = []
 
@@ -188,7 +243,7 @@ def render_markdown(text: str) -> str:
 
     final_html = "".join(formatted_lines)
 
-    # 7. Restore code blocks
+    # 8. Restore code blocks & images
     for idx, block in enumerate(code_blocks):
         final_html = final_html.replace(f"__CODE_BLOCK_{idx}__", block)
 
@@ -251,13 +306,14 @@ class AgentWorker(QThread):
     finished = Signal(object)
     failed = Signal(str)
 
-    def __init__(self, message):
+    def __init__(self, message, attachments=None):
         super().__init__()
         self.message = message
+        self.attachments = attachments or []
 
     def run(self):
         try:
-            result = run_agent(self.message)
+            result = run_agent(self.message, self.attachments)
             self.finished.emit(result)
         except Exception as e:
             self.failed.emit(str(e))
@@ -296,7 +352,6 @@ class OrsearchCore(QWidget):
         painter.setRenderHint(QPainter.Antialiasing)
 
         s = self.size
-        center = s / 2
 
         # Multi-layer ambient radial glow
         for width, base_alpha in [(18, 8), (12, 16), (7, 28)]:
@@ -492,7 +547,7 @@ class ChatPromptInput(QTextEdit):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setPlaceholderText("Message Orsearch... (Enter to send, Shift+Enter for new line)")
+        self.setPlaceholderText("Message Orsearch or ask for code... (Enter to send, Shift+Enter for new line)")
         self.setFixedHeight(46)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -523,10 +578,7 @@ class ChatPromptInput(QTextEdit):
                 super().keyPressEvent(event)
             else:
                 text = self.toPlainText().strip()
-                if text:
-                    self.send_requested.emit(text)
-                    self.clear()
-                    self.setFixedHeight(46)
+                self.send_requested.emit(text)
                 event.accept()
         else:
             super().keyPressEvent(event)
@@ -539,9 +591,12 @@ class ChatPromptInput(QTextEdit):
 class OrsearchWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Orsearch AI - Autonomous Desktop Agent")
-        self.resize(1240, 800)
-        self.setMinimumSize(960, 640)
+        self.setWindowTitle("Orsearch AI - Autonomous Desktop & Coding Agent")
+        self.resize(1260, 820)
+        self.setMinimumSize(980, 660)
+
+        # Enable Drag & Drop
+        self.setAcceptDrops(True)
 
         self.chats = {}
         self.current_chat = None
@@ -549,6 +604,7 @@ class OrsearchWindow(QMainWindow):
         self.worker = None
 
         self.search_filter_text = ""
+        self.pending_attachments = []
 
         # Thinking animation timer
         self.thinking_dots_count = 0
@@ -557,6 +613,26 @@ class OrsearchWindow(QMainWindow):
 
         self.build_ui()
         self.new_chat()
+
+    # =====================================================
+    # DRAG & DROP HANDLING
+    # =====================================================
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dropEvent(self, event):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                file_path = url.toLocalFile()
+                if file_path and os.path.exists(file_path):
+                    self.add_attachment(file_path)
+            event.acceptProposedAction()
+        else:
+            super().dropEvent(event)
 
     # =====================================================
     # BUILD UI
@@ -695,11 +771,11 @@ class OrsearchWindow(QMainWindow):
         # Scroll Area for Chats
         self.chat_scroll = QScrollArea()
         self.chat_scroll.setWidgetResizable(True)
-        self.chat_scroll.setStyleSheet(f"""
-            QScrollArea {{
+        self.chat_scroll.setStyleSheet("""
+            QScrollArea {
                 background: transparent;
                 border: none;
-            }}
+            }
         """)
 
         self.chat_container = QWidget()
@@ -728,7 +804,7 @@ class OrsearchWindow(QMainWindow):
         status_dot = QLabel("●")
         status_dot.setStyleSheet(f"color: {EMERALD}; font-size: 10px;")
 
-        model_info = QLabel("Ollama: qwen3:4b")
+        model_info = QLabel("Ollama: qwen3:4b (Fast Mode)")
         model_info.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px; font-weight: 500;")
 
         bottom_layout.addWidget(status_dot)
@@ -749,7 +825,7 @@ class OrsearchWindow(QMainWindow):
 
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(32, 20, 32, 22)
-        content_layout.setSpacing(14)
+        content_layout.setSpacing(12)
 
         # Header Bar
         header = QHBoxLayout()
@@ -834,7 +910,7 @@ class OrsearchWindow(QMainWindow):
 
         core_hero = OrsearchCore(105)
 
-        welcome_title = QLabel("What can I do for you today?")
+        welcome_title = QLabel("What can I create or automate for you?")
         welcome_title.setAlignment(Qt.AlignCenter)
         welcome_title.setStyleSheet(f"""
             QLabel {{
@@ -847,7 +923,7 @@ class OrsearchWindow(QMainWindow):
         """)
 
         welcome_subtitle = QLabel(
-            "Search the web, automate desktop apps, take screenshots, or execute computer tasks."
+            "Upload files, videos, & music • Generate AI images • Write and debug code • Automate desktop apps"
         )
         welcome_subtitle.setAlignment(Qt.AlignCenter)
         welcome_subtitle.setStyleSheet(f"""
@@ -871,14 +947,22 @@ class OrsearchWindow(QMainWindow):
             cards_grid,
             0,
             0,
-            "🌐 Web Search",
-            "Search Google for latest tech & AI news",
-            "Search Google for latest AI news 2026",
+            "🎨 Generate AI Image",
+            "Generate futuristic cyberpunk city art",
+            "Generate image of a futuristic cyberpunk city with neon reflections",
         )
         self.add_hero_card(
             cards_grid,
             0,
             1,
+            "⚡ Python Coding Solution",
+            "Write a multi-threaded fast web scraper",
+            "Write a complete Python script to fetch and parse web content with error handling",
+        )
+        self.add_hero_card(
+            cards_grid,
+            1,
+            0,
             "💻 Launch Chrome",
             "Open Chrome browser and navigate",
             "Open Chrome",
@@ -886,18 +970,10 @@ class OrsearchWindow(QMainWindow):
         self.add_hero_card(
             cards_grid,
             1,
-            0,
-            "📝 Quick Notepad",
-            "Launch Notepad to write notes & checklist",
-            "Open Notepad",
-        )
-        self.add_hero_card(
-            cards_grid,
             1,
-            1,
-            "📸 Screen Vision",
-            "Capture screenshot and inspect desktop",
-            "Take a screenshot",
+            "📎 Upload & Vision",
+            "Attach photos, videos, or scripts to analyze",
+            "Describe the uploaded file and analyze key elements",
         )
 
         welcome_layout.addLayout(cards_grid)
@@ -930,7 +1006,7 @@ class OrsearchWindow(QMainWindow):
         thinking_layout = QHBoxLayout(self.thinking_bar)
         thinking_layout.setContentsMargins(6, 4, 6, 4)
 
-        self.thinking_label = QLabel("⚡ Orsearch is analyzing and planning actions...")
+        self.thinking_label = QLabel("⚡ Orsearch is analyzing and processing...")
         self.thinking_label.setStyleSheet(f"""
             QLabel {{
                 color: {EMERALD_MINT};
@@ -948,10 +1024,10 @@ class OrsearchWindow(QMainWindow):
         quick_layout = QHBoxLayout()
         quick_layout.setSpacing(8)
 
-        self.add_quick_pill(quick_layout, "🌐 Search Web", "Search Google for ")
-        self.add_quick_pill(quick_layout, "💻 Open Chrome", "Open Chrome")
-        self.add_quick_pill(quick_layout, "📝 Open Notepad", "Open Notepad")
-        self.add_quick_pill(quick_layout, "📸 Screenshot", "Take a screenshot")
+        self.add_quick_pill(quick_layout, "🎨 Generate Image", "Generate image of a ")
+        self.add_quick_pill(quick_layout, "💻 Write Code", "Write python code to ")
+        self.add_quick_pill(quick_layout, "🌐 Search Google", "Search Google for ")
+        self.add_quick_pill(quick_layout, "📸 Take Screenshot", "Take a screenshot")
         quick_layout.addStretch()
 
         content_layout.addLayout(quick_layout)
@@ -972,15 +1048,47 @@ class OrsearchWindow(QMainWindow):
         input_container_layout.setContentsMargins(12, 10, 12, 10)
         input_container_layout.setSpacing(6)
 
+        # Attachments Preview Box (Chips for uploaded images/videos/files)
+        self.attachments_box = QWidget()
+        self.attachments_box.setStyleSheet("background: transparent;")
+        self.attachments_layout = QHBoxLayout(self.attachments_box)
+        self.attachments_layout.setContentsMargins(0, 0, 0, 4)
+        self.attachments_layout.setSpacing(8)
+        self.attachments_layout.setAlignment(Qt.AlignLeft)
+        self.attachments_box.hide()
+        input_container_layout.addWidget(self.attachments_box)
+
+        # Text input field
         self.prompt_input = ChatPromptInput()
-        self.prompt_input.send_requested.connect(self.send_message)
+        self.prompt_input.send_requested.connect(self.trigger_send)
         input_container_layout.addWidget(self.prompt_input)
 
         # Bottom Controls inside the Input Container
         bottom_input_bar = QHBoxLayout()
         bottom_input_bar.setSpacing(10)
 
-        model_pill = QLabel("⚡ Qwen 3 Local Agent")
+        # Attach Button (📎)
+        self.attach_button = QPushButton("📎")
+        self.attach_button.setToolTip("Upload Files, Images, MP4 Videos, Music, or Code")
+        self.attach_button.setFixedSize(36, 36)
+        self.attach_button.setCursor(Qt.PointingHandCursor)
+        self.attach_button.setStyleSheet(f"""
+            QPushButton {{
+                background: #19202E;
+                color: {TEXT_PRIMARY};
+                border: 1px solid {BORDER_CARD};
+                border-radius: 9px;
+                font-size: 16px;
+            }}
+            QPushButton:hover {{
+                background: {BG_CARD_HOVER};
+                border: 1px solid {EMERALD};
+                color: {EMERALD_MINT};
+            }}
+        """)
+        self.attach_button.clicked.connect(self.choose_files_to_attach)
+
+        model_pill = QLabel("⚡ Qwen 3 (Fast Code & Agent)")
         model_pill.setStyleSheet(f"""
             QLabel {{
                 background: {EMERALD_BG};
@@ -993,7 +1101,7 @@ class OrsearchWindow(QMainWindow):
             }}
         """)
 
-        shortcut_hint = QLabel("Enter ↵ to send • Shift+Enter for newline")
+        shortcut_hint = QLabel("Enter ↵ to send • Shift+Enter for newline • Drag & Drop files supported")
         shortcut_hint.setStyleSheet(f"""
             QLabel {{
                 color: {TEXT_SUBTLE};
@@ -1026,6 +1134,7 @@ class OrsearchWindow(QMainWindow):
         """)
         self.send_button.clicked.connect(self.trigger_send)
 
+        bottom_input_bar.addWidget(self.attach_button)
         bottom_input_bar.addWidget(model_pill)
         bottom_input_bar.addWidget(shortcut_hint)
         bottom_input_bar.addStretch()
@@ -1038,6 +1147,106 @@ class OrsearchWindow(QMainWindow):
         main_layout.addWidget(content)
 
         self.set_status("READY")
+
+    # =====================================================
+    # FILE ATTACHMENT SYSTEM
+    # =====================================================
+
+    def choose_files_to_attach(self):
+        file_filter = (
+            "All Supported Files (*.png *.jpg *.jpeg *.webp *.gif *.bmp *.mp4 *.avi *.mov *.mkv *.mp3 *.wav *.m4a *.py *.txt *.json *.csv *.pdf);;"
+            "Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp);;"
+            "Videos (*.mp4 *.avi *.mov *.mkv);;"
+            "Audio & Music (*.mp3 *.wav *.m4a *.ogg *.flac);;"
+            "Code & Documents (*.py *.txt *.json *.csv *.md *.pdf *.html *.js);;"
+            "All Files (*.*)"
+        )
+
+        files, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Select Files, Images, Videos or Audio to Upload",
+            "",
+            file_filter
+        )
+
+        for path in files:
+            self.add_attachment(path)
+
+    def add_attachment(self, file_path: str):
+        normalized = file_path.replace("\\", "/")
+        if normalized not in self.pending_attachments:
+            self.pending_attachments.append(normalized)
+            self.refresh_attachments_preview()
+
+    def remove_attachment(self, file_path: str):
+        if file_path in self.pending_attachments:
+            self.pending_attachments.remove(file_path)
+            self.refresh_attachments_preview()
+
+    def refresh_attachments_preview(self):
+        # Clear preview layout
+        while self.attachments_layout.count():
+            item = self.attachments_layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+
+        if not self.pending_attachments:
+            self.attachments_box.hide()
+            return
+
+        self.attachments_box.show()
+
+        for fpath in self.pending_attachments:
+            icon = get_file_icon(fpath)
+            fname = os.path.basename(fpath)
+            if len(fname) > 22:
+                fname = fname[:12] + "..." + fname[-7:]
+
+            size_str = ""
+            try:
+                size_str = format_file_size(os.path.getsize(fpath))
+            except Exception:
+                pass
+
+            chip = QFrame()
+            chip.setStyleSheet(f"""
+                QFrame {{
+                    background: #18202F;
+                    border: 1px solid #28374E;
+                    border-radius: 7px;
+                }}
+            """)
+            chip_layout = QHBoxLayout(chip)
+            chip_layout.setContentsMargins(8, 4, 8, 4)
+            chip_layout.setSpacing(6)
+
+            chip_label = QLabel(f"{icon} {fname}  <span style='color: {TEXT_SUBTLE}; font-size: 10px;'>({size_str})</span>")
+            chip_label.setStyleSheet(f"color: {TEXT_PRIMARY}; font-size: 12px;")
+
+            del_btn = QPushButton("✕")
+            del_btn.setFixedSize(18, 18)
+            del_btn.setCursor(Qt.PointingHandCursor)
+            del_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: transparent;
+                    color: {TEXT_SUBTLE};
+                    border: none;
+                    border-radius: 4px;
+                    font-size: 11px;
+                }}
+                QPushButton:hover {{
+                    background: {RED_BG};
+                    color: {RED};
+                }}
+            """)
+            del_btn.clicked.connect(lambda _, p=fpath: self.remove_attachment(p))
+
+            chip_layout.addWidget(chip_label)
+            chip_layout.addWidget(del_btn)
+            self.attachments_layout.addWidget(chip)
+
+        self.attachments_layout.addStretch()
 
     # =====================================================
     # HERO PROMPT CARDS (WELCOME SCREEN)
@@ -1174,7 +1383,6 @@ class OrsearchWindow(QMainWindow):
     # =====================================================
 
     def rebuild_chat_list(self):
-        # Clear existing items
         while self.chat_layout.count():
             item = self.chat_layout.takeAt(0)
             widget = item.widget()
@@ -1188,7 +1396,6 @@ class OrsearchWindow(QMainWindow):
             or self.search_filter_text in c["title"].lower()
         ]
 
-        # Split into pinned and recent
         pinned_chats = [
             (cid, c) for cid, c in filtered_chats if c.get("pinned", False)
         ]
@@ -1308,6 +1515,7 @@ class OrsearchWindow(QMainWindow):
                 role=msg.get("role", "assistant"),
                 text=msg.get("text", ""),
                 actions=msg.get("actions", []),
+                attachments=msg.get("attachments", []),
                 timestamp=msg.get("time", ""),
             )
 
@@ -1315,9 +1523,38 @@ class OrsearchWindow(QMainWindow):
     # RENDER RICH MESSAGE BUBBLE
     # =====================================================
 
-    def render_message(self, role, text, actions=None, timestamp=""):
+    def render_message(self, role, text, actions=None, attachments=None, timestamp=""):
         if not timestamp:
             timestamp = datetime.now().strftime("%H:%M")
+
+        attachments = attachments or []
+        attach_html_list = []
+
+        for fpath in attachments:
+            fname = os.path.basename(fpath)
+            ext = os.path.splitext(fpath)[1].lower()
+            icon = get_file_icon(fpath)
+
+            if ext in [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"]:
+                norm_path = fpath.replace("\\", "/")
+                attach_html_list.append(
+                    f"""
+                    <div style="margin: 6px 0;">
+                        <img src="file:///{norm_path}" alt="{fname}" style="max-width: 260px; max-height: 180px; border-radius: 8px; border: 1px solid #28374E;" />
+                        <div style="font-size: 10px; color: #64748B; margin-top: 2px;">{fname}</div>
+                    </div>
+                    """
+                )
+            else:
+                attach_html_list.append(
+                    f"""
+                    <div style="display: inline-block; margin: 4px 6px 4px 0; background: #1B2436; border: 1px solid #283852; border-radius: 6px; padding: 4px 10px; font-size: 11px; color: #38BDF8;">
+                        {icon} <strong>{html.escape(fname)}</strong>
+                    </div>
+                    """
+                )
+
+        attachments_html = "".join(attach_html_list)
 
         if role == "user":
             formatted_text = render_markdown(text)
@@ -1327,6 +1564,7 @@ class OrsearchWindow(QMainWindow):
                     <span style="color: #38BDF8; font-size: 11px; font-weight: 700; letter-spacing: 0.5px;">👤 YOU</span>
                     <span style="color: {TEXT_SUBTLE}; font-size: 10px; margin-left: 10px;">{timestamp}</span>
                 </div>
+                {attachments_html}
                 <div style="color: {TEXT_PRIMARY}; font-size: 14px; line-height: 1.6;">
                     {formatted_text}
                 </div>
@@ -1340,7 +1578,6 @@ class OrsearchWindow(QMainWindow):
             </div>
             """
         else:
-            # Assistant message with optional executed action cards
             formatted_text = render_markdown(text)
             actions_html = render_actions_summary(actions) if actions else ""
 
@@ -1362,7 +1599,6 @@ class OrsearchWindow(QMainWindow):
         self.chat_view.insertHtml(content)
         self.chat_view.insertPlainText("\n")
 
-        # Scroll smoothly to bottom
         sb = self.chat_view.verticalScrollBar()
         sb.setValue(sb.maximum())
 
@@ -1372,18 +1608,26 @@ class OrsearchWindow(QMainWindow):
 
     def trigger_send(self):
         text = self.prompt_input.toPlainText().strip()
-        if text:
-            self.send_message(text)
-            self.prompt_input.clear()
-            self.prompt_input.setFixedHeight(46)
+        attachments = list(self.pending_attachments)
 
-    def send_message(self, text):
-        if not text:
+        if not text and not attachments:
+            return
+
+        self.pending_attachments.clear()
+        self.refresh_attachments_preview()
+
+        self.send_message(text, attachments)
+        self.prompt_input.clear()
+        self.prompt_input.setFixedHeight(46)
+
+    def send_message(self, text, attachments=None):
+        if not text and not attachments:
             return
 
         if self.worker and self.worker.isRunning():
             return
 
+        attachments = attachments or []
         self.welcome.hide()
         self.chat_view.show()
 
@@ -1393,14 +1637,15 @@ class OrsearchWindow(QMainWindow):
         self.chats[self.current_chat]["messages"].append({
             "role": "user",
             "text": text,
+            "attachments": attachments,
             "time": time_now,
         })
 
-        self.render_message("user", text, timestamp=time_now)
+        self.render_message("user", text, attachments=attachments, timestamp=time_now)
 
         # Update chat title if it's still default
         chat_data = self.chats[self.current_chat]
-        if chat_data["title"].startswith("Chat "):
+        if chat_data["title"].startswith("Chat ") and text:
             new_title = text[:26].strip()
             if len(text) > 26:
                 new_title += "..."
@@ -1412,15 +1657,16 @@ class OrsearchWindow(QMainWindow):
         self.set_status("THINKING")
         self.send_button.setDisabled(True)
         self.prompt_input.setDisabled(True)
+        self.attach_button.setDisabled(True)
 
         # Start thinking animation
         self.thinking_dots_count = 0
-        self.thinking_label.setText("⚡ Orsearch is analyzing and planning actions...")
+        self.thinking_label.setText("⚡ Orsearch is thinking & preparing response...")
         self.thinking_bar.show()
-        self.thinking_timer.start(400)
+        self.thinking_timer.start(350)
 
-        # Spawn Agent Worker
-        self.worker = AgentWorker(text)
+        # Spawn Agent Worker with attachments
+        self.worker = AgentWorker(text, attachments)
         self.worker.finished.connect(self.agent_finished)
         self.worker.failed.connect(self.agent_failed)
         self.worker.start()
@@ -1428,7 +1674,7 @@ class OrsearchWindow(QMainWindow):
     def animate_thinking(self):
         self.thinking_dots_count = (self.thinking_dots_count + 1) % 4
         dots = "." * self.thinking_dots_count
-        self.thinking_label.setText(f"⚡ Orsearch is executing actions{dots}")
+        self.thinking_label.setText(f"⚡ Orsearch is generating response{dots}")
 
     # =====================================================
     # AGENT RESPONSE HANDLERS
@@ -1471,6 +1717,7 @@ class OrsearchWindow(QMainWindow):
 
         self.send_button.setDisabled(False)
         self.prompt_input.setDisabled(False)
+        self.attach_button.setDisabled(False)
         self.prompt_input.setFocus()
         self.rebuild_chat_list()
         self.worker = None
@@ -1481,7 +1728,7 @@ class OrsearchWindow(QMainWindow):
         self.set_status("ERROR")
 
         time_now = datetime.now().strftime("%H:%M")
-        message = f"**Agent Error**: Unable to complete action.\n`{error}`"
+        message = f"**Agent Error**: Unable to complete request.\n`{error}`"
 
         self.chats[self.current_chat]["messages"].append({
             "role": "assistant",
@@ -1494,6 +1741,7 @@ class OrsearchWindow(QMainWindow):
 
         self.send_button.setDisabled(False)
         self.prompt_input.setDisabled(False)
+        self.attach_button.setDisabled(False)
         self.prompt_input.setFocus()
         self.worker = None
 

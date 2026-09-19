@@ -1,7 +1,5 @@
-import os
 import subprocess
 import time
-import webbrowser
 
 import pyautogui
 
@@ -62,7 +60,6 @@ def open_app(app_name):
                     shell=True,
                     creationflags=subprocess.CREATE_NO_WINDOW
                 )
-
         else:
             subprocess.Popen(target)
 
@@ -73,7 +70,7 @@ def open_app(app_name):
 
 
 def open_url(url):
-    url = str(url).strip()
+    url = str(url or "").strip()
 
     if not url:
         return "No URL provided."
@@ -99,7 +96,7 @@ def open_url(url):
 
 
 def search_web(query):
-    query = str(query).strip()
+    query = str(query or "").strip()
 
     if not query:
         return "No search query provided."
@@ -131,7 +128,11 @@ def search_web(query):
 
 def type_text(text):
     try:
-        pyautogui.write(str(text), interval=0)
+        pyautogui.write(
+            str(text),
+            interval=0
+        )
+
         return "Text typed."
 
     except Exception as e:
@@ -141,6 +142,7 @@ def type_text(text):
 def press_key(key):
     try:
         pyautogui.press(str(key))
+
         return f"Pressed {key}."
 
     except Exception as e:
@@ -149,7 +151,11 @@ def press_key(key):
 
 def click(x, y):
     try:
-        pyautogui.click(int(x), int(y))
+        pyautogui.click(
+            int(x),
+            int(y)
+        )
+
         return f"Clicked at ({x}, {y})."
 
     except Exception as e:
@@ -201,12 +207,18 @@ def execute_action(action):
     if not isinstance(action, dict):
         return "Invalid action."
 
-    action_type = action.get("type", "").strip()
+    action_type = str(
+        action.get("type", "")
+    ).strip()
 
     parameter = action.get("parameter")
 
     if action_type == "open_app":
-        app = action.get("app", parameter)
+        app = action.get(
+            "app",
+            parameter
+        )
+
         return open_app(app)
 
     if action_type == "open_url":

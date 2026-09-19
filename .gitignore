@@ -1,2 +1,6 @@
 screen.png
-screen.png
+__pycache__/
+*.pyc
+venv/
+output/
+.env
